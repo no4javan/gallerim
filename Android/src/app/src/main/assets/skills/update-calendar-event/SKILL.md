@@ -1,6 +1,6 @@
 ---
 name: update-calendar-event
-description: Change an existing calendar event, such as moving it to another time or day, or renaming it.
+description: Edit an existing calendar event: move, reschedule, postpone, bring forward, change its time or day, or rename it (Persian: ویرایش، تغییر ساعت، جابه‌جا کن، بنداز، عقب بنداز، جلو بنداز، ببر به، «قرار دکتر رو بنداز ساعت ۶»).
 ---
 
 # Update calendar event

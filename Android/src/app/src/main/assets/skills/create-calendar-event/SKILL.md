@@ -1,6 +1,6 @@
 ---
 name: create-calendar-event
-description: Create a calendar event.
+description: Create a new calendar event, appointment or meeting (Persian: قرار، جلسه، وقت دکتر، رویداد جدید، «فردا ساعت ۵ برم دکتر»).
 ---
 
 # Create calendar event

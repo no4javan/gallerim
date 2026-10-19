@@ -1,6 +1,6 @@
 ---
 name: read-calendar-events
-description: Read OS calendar events for a specific date.
+description: Read or list calendar events for a specific date (Persian: برنامه‌ام چیه، فردا چه قرارهایی دارم، تقویم امروز رو بگو).
 ---
 
 # Read calendar events

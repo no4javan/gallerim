@@ -1,6 +1,6 @@
 ---
 name: delete-calendar-event
-description: Delete or cancel an existing calendar event.
+description: Delete, cancel or remove an existing calendar event (Persian: حذف کن، پاک کن، کنسل کن، لغو کن، «قرار دکتر فردا رو حذف کن»).
 ---
 
 # Delete calendar event
