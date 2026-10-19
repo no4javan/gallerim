@@ -168,6 +168,27 @@ fun ChatView(
       )
     }
   }
+    // Also save when the app goes to the background (e.g. a skill opens the calendar), so the chat
+  // is not lost if the system kills the app before the response finishes.
+  val latestMessages by androidx.compose.runtime.rememberUpdatedState(currentMessages)
+  val latestModelName by androidx.compose.runtime.rememberUpdatedState(selectedModel.name)
+  val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+  androidx.compose.runtime.DisposableEffect(lifecycleOwner, task.id) {
+    val observer =
+      androidx.lifecycle.LifecycleEventObserver { _, event ->
+        if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP && latestMessages.isNotEmpty()) {
+          viewModel.saveSession(
+            sessionId = viewModel.currentSessionId,
+            messages = latestMessages,
+            originalModel = latestModelName,
+            taskId = task.id,
+            context = context,
+          )
+        }
+      }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+  }
   val scope = rememberCoroutineScope()
   var navigatingUp by remember { mutableStateOf(false) }
 
