@@ -1378,7 +1378,11 @@ constructor(
           for (taskType in allowedModel.taskTypes.orEmpty()) {
             if (taskType == BuiltInTaskId.LLM_TEST) continue
             val task = curTasks.find { it.id == taskType }
-            task?.models?.add(model)
+            // Tasks outlive the activity (MainActivity reloads the allowlist on every onCreate,
+            // e.g. after rotation or a theme change), so skip models that are already listed.
+            if (task != null && task.models.none { it.name == model.name }) {
+              task.models.add(model)
+            }
 
             if (task?.id == BuiltInTaskId.LLM_TINY_GARDEN) {
               val newConfigs = model.configs.toMutableList()
@@ -1399,7 +1403,7 @@ constructor(
                 continue
               }
               Log.d(TAG, "Adding model '$modelName' to task '${task.label}' from modelNames.")
-              if (model !in task.models) {
+              if (task.models.none { it.name == model.name }) {
                 task.models.add(model)
               }
             }
@@ -1589,7 +1593,9 @@ constructor(
 
       // Add to task.
       for (taskId in model.getTargetTaskIdsForImportedModel()) {
-        tasks.get(key = taskId)?.models?.add(model)
+        val taskModels = tasks.get(key = taskId)?.models ?: continue
+        taskModels.removeAll { it.name == model.name && it.downloadInfo.imported }
+        taskModels.add(model)
       }
 
       // Update status.
