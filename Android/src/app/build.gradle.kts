@@ -51,11 +51,26 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  // Fixed release key, provided by CI through SIGNING_KEYSTORE_PATH / SIGNING_KEYSTORE_PASSWORD.
+  val releaseKeystorePath = System.getenv("SIGNING_KEYSTORE_PATH")
+  signingConfigs {
+    if (releaseKeystorePath != null) {
+      create("release") {
+        storeFile = file(releaseKeystorePath)
+        storePassword = System.getenv("SIGNING_KEYSTORE_PASSWORD")
+        keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "gallerim"
+        keyPassword = System.getenv("SIGNING_KEYSTORE_PASSWORD")
+      }
+    }
+  }
+
   buildTypes {
     release {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("debug")
+      signingConfig =
+        if (releaseKeystorePath != null) signingConfigs.getByName("release")
+        else signingConfigs.getByName("debug")
     }
   }
   compileOptions {
