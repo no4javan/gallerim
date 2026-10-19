@@ -17,12 +17,15 @@ package com.google.ai.edge.gallery.intents
 
 import android.Manifest
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
+import android.provider.CalendarContract.Calendars
 import android.provider.CalendarContract.Events
 import android.provider.CalendarContract.Instances
+import android.provider.CalendarContract.Reminders
 import android.util.Log
 import androidx.core.content.ContextCompat.checkSelfPermission
 import androidx.core.net.toUri
@@ -36,6 +39,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 @JsonClass(generateAdapter = true)
@@ -59,11 +63,23 @@ data class CreateCalendarEventParams(
 @JsonClass(generateAdapter = true) data class ReadCalendarEventsParams(val date: String)
 
 @JsonClass(generateAdapter = true)
+data class UpdateCalendarEventParams(
+  val event_id: Long,
+  val title: String? = null,
+  val description: String? = null,
+  val begin_time: String? = null,
+  val end_time: String? = null,
+)
+
+@JsonClass(generateAdapter = true) data class DeleteCalendarEventParams(val event_id: Long)
+
+@JsonClass(generateAdapter = true)
 data class CalendarEventDto(
   val title: String,
   val description: String,
   val begin_time: String,
   val end_time: String,
+  val event_id: Long = 0,
 )
 
 @JsonClass(generateAdapter = true)
@@ -74,6 +90,8 @@ enum class IntentAction(val action: String) {
   SEND_SMS("send_sms"),
   CREATE_CALENDAR_EVENT("create_calendar_event"),
   READ_CALENDAR_EVENTS("read_calendar_events"),
+  UPDATE_CALENDAR_EVENT("update_calendar_event"),
+  DELETE_CALENDAR_EVENT("delete_calendar_event"),
   GET_CURRENT_DATE_AND_TIME("get_current_date_and_time"),
   SCHEDULE_NOTIFICATION("schedule_notification");
 
@@ -99,6 +117,8 @@ data class ScheduleNotificationParams(
 
 object IntentHandler {
   private const val TAG = "IntentHandler"
+  private const val DEFAULT_EVENT_DURATION_MS = 60 * 60 * 1000L
+  private const val DEFAULT_REMINDER_MINUTES = 15
 
   suspend fun handleAction(
     context: Context,
@@ -155,38 +175,19 @@ object IntentHandler {
         }
       }
       IntentAction.CREATE_CALENDAR_EVENT -> {
-        try {
-          val moshi = Moshi.Builder().build()
-          val jsonAdapter = moshi.adapter(CreateCalendarEventParams::class.java)
-          val params = jsonAdapter.fromJson(parameters)
-          if (params != null) {
-            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-            val beginTimeMillis = format.parse(params.begin_time)?.time ?: 0L
-            val endTimeMillis = format.parse(params.end_time)?.time ?: 0L
-            val intent =
-              Intent(Intent.ACTION_INSERT).apply {
-                data = Events.CONTENT_URI
-                putExtra(Events.TITLE, params.title)
-                putExtra(Events.DESCRIPTION, params.description)
-                putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginTimeMillis)
-                putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endTimeMillis)
-              }
-            context.startActivity(intent)
-            "succeeded"
-          } else {
-            Log.e(TAG, "Failed to parse create_calendar_event parameters: $parameters")
-            "failed"
-          }
-        } catch (e: Exception) {
-          Log.e(TAG, "Failed to parse create_calendar_event parameters: $parameters", e)
-          "failed"
-        }
+        createCalendarEvent(context, parameters, requestPermission)
       }
       IntentAction.READ_CALENDAR_EVENTS -> {
         readCalendarEvents(context, parameters, requestPermission)
       }
+      IntentAction.UPDATE_CALENDAR_EVENT -> {
+        updateCalendarEvent(context, parameters, requestPermission)
+      }
+      IntentAction.DELETE_CALENDAR_EVENT -> {
+        deleteCalendarEvent(context, parameters, requestPermission)
+      }
       IntentAction.GET_CURRENT_DATE_AND_TIME -> {
-        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss EEEE", Locale.getDefault())
+        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss EEEE", Locale.US)
         val currentDateAndTime = sdf.format(Date())
         Log.d(
           TAG,
@@ -222,7 +223,7 @@ object IntentHandler {
       val jsonAdapter = moshi.adapter(ReadCalendarEventsParams::class.java)
       val params = jsonAdapter.fromJson(parameters)
       if (params != null) {
-        val format = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val format = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val dateObj = format.parse(params.date)
         if (dateObj != null) {
           val cal =
@@ -242,7 +243,13 @@ object IntentHandler {
           val endOfDayMillis = cal.timeInMillis
 
           val projection =
-            arrayOf(Instances.TITLE, Instances.DESCRIPTION, Instances.BEGIN, Instances.END)
+            arrayOf(
+              Instances.TITLE,
+              Instances.DESCRIPTION,
+              Instances.BEGIN,
+              Instances.END,
+              Instances.EVENT_ID,
+            )
 
           val builder = Instances.CONTENT_URI.buildUpon()
           ContentUris.appendId(builder, startOfDayMillis)
@@ -263,18 +270,21 @@ object IntentHandler {
             val descIdx = c.getColumnIndex(Instances.DESCRIPTION)
             val startIdx = c.getColumnIndex(Instances.BEGIN)
             val endIdx = c.getColumnIndex(Instances.END)
-            val timeFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+            val eventIdIdx = c.getColumnIndex(Instances.EVENT_ID)
+            val timeFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
             while (c.moveToNext()) {
               val title = if (titleIdx >= 0) c.getString(titleIdx) ?: "" else ""
               val desc = if (descIdx >= 0) c.getString(descIdx) ?: "" else ""
               val start = if (startIdx >= 0) c.getLong(startIdx) else 0L
               val end = if (endIdx >= 0) c.getLong(endIdx) else 0L
+              val eventId = if (eventIdIdx >= 0) c.getLong(eventIdIdx) else 0L
               eventsList.add(
                 CalendarEventDto(
                   title = title,
                   description = desc,
                   begin_time = if (start > 0) timeFormat.format(Date(start)) else "",
                   end_time = if (end > 0) timeFormat.format(Date(end)) else "",
+                  event_id = eventId,
                 )
               )
             }
@@ -293,6 +303,209 @@ object IntentHandler {
       Log.e(TAG, "Failed to read calendar events: $parameters", e)
       return "failed: ${e.message}"
     }
+  }
+
+  /**
+   * Saves an event straight into the user's calendar. Falls back to opening the calendar app's
+   * pre-filled form when calendar permission is denied or no writable calendar exists.
+   */
+  suspend fun createCalendarEvent(
+    context: Context,
+    parameters: String,
+    requestPermission: suspend (String) -> Boolean,
+  ): String {
+    val params =
+      try {
+        Moshi.Builder().build().adapter(CreateCalendarEventParams::class.java).fromJson(parameters)
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to parse create_calendar_event parameters: $parameters", e)
+        null
+      } ?: return "failed: could not parse parameters"
+    val beginMillis =
+      parseDateTimeMillis(params.begin_time)
+        ?: return "failed: begin_time must be in YYYY-MM-DDTHH:MM:SS format"
+    val endMillis =
+      parseDateTimeMillis(params.end_time)?.takeIf { it > beginMillis }
+        ?: (beginMillis + DEFAULT_EVENT_DURATION_MS)
+
+    if (ensureCalendarPermissions(context, requestPermission)) {
+      try {
+        val calendarId = findWritableCalendarId(context)
+        if (calendarId != null) {
+          val values =
+            ContentValues().apply {
+              put(Events.CALENDAR_ID, calendarId)
+              put(Events.TITLE, params.title)
+              put(Events.DESCRIPTION, params.description)
+              put(Events.DTSTART, beginMillis)
+              put(Events.DTEND, endMillis)
+              put(Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+              put(Events.HAS_ALARM, 1)
+            }
+          val eventId =
+            context.contentResolver.insert(Events.CONTENT_URI, values)?.lastPathSegment?.toLongOrNull()
+          if (eventId != null) {
+            val reminder =
+              ContentValues().apply {
+                put(Reminders.EVENT_ID, eventId)
+                put(Reminders.MINUTES, DEFAULT_REMINDER_MINUTES)
+                put(Reminders.METHOD, Reminders.METHOD_ALERT)
+              }
+            context.contentResolver.insert(Reminders.CONTENT_URI, reminder)
+            return "succeeded: event saved to calendar with event_id=$eventId"
+          }
+        }
+        Log.w(TAG, "No writable calendar found, falling back to the calendar app")
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to insert calendar event, falling back to the calendar app", e)
+      }
+    }
+
+    return try {
+      val intent =
+        Intent(Intent.ACTION_INSERT).apply {
+          data = Events.CONTENT_URI
+          putExtra(Events.TITLE, params.title)
+          putExtra(Events.DESCRIPTION, params.description)
+          putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginMillis)
+          putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+        }
+      context.startActivity(intent)
+      "succeeded: opened the calendar app, the user must tap save"
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to open the calendar app", e)
+      "failed: ${e.message}"
+    }
+  }
+
+  /** Changes the title, description or time of an existing event, keeping its duration. */
+  suspend fun updateCalendarEvent(
+    context: Context,
+    parameters: String,
+    requestPermission: suspend (String) -> Boolean,
+  ): String {
+    if (!ensureCalendarPermissions(context, requestPermission)) {
+      return "failed: calendar permission denied by user"
+    }
+    return try {
+      val params =
+        Moshi.Builder().build().adapter(UpdateCalendarEventParams::class.java).fromJson(parameters)
+          ?: return "failed: could not parse parameters"
+      val eventUri = ContentUris.withAppendedId(Events.CONTENT_URI, params.event_id)
+      var oldBegin = 0L
+      var oldEnd = 0L
+      val found =
+        context.contentResolver
+          .query(eventUri, arrayOf(Events.DTSTART, Events.DTEND), null, null, null)
+          ?.use { c ->
+            if (c.moveToFirst()) {
+              oldBegin = c.getLong(0)
+              oldEnd = c.getLong(1)
+              true
+            } else false
+          } ?: false
+      if (!found) return "failed: no event with event_id=${params.event_id}"
+
+      val values = ContentValues()
+      params.title?.let { values.put(Events.TITLE, it) }
+      params.description?.let { values.put(Events.DESCRIPTION, it) }
+      val newBegin =
+        params.begin_time?.let {
+          parseDateTimeMillis(it) ?: return "failed: begin_time must be YYYY-MM-DDTHH:MM:SS"
+        }
+      val newEnd =
+        params.end_time?.let {
+          parseDateTimeMillis(it) ?: return "failed: end_time must be YYYY-MM-DDTHH:MM:SS"
+        }
+      if (newBegin != null) values.put(Events.DTSTART, newBegin)
+      when {
+        newEnd != null -> values.put(Events.DTEND, newEnd)
+        // Keep the original duration when only the start moves. Recurring events have no DTEND.
+        newBegin != null && oldEnd > 0 -> values.put(Events.DTEND, newBegin + (oldEnd - oldBegin))
+      }
+      if (values.size() == 0) return "failed: nothing to update"
+      val rows = context.contentResolver.update(eventUri, values, null, null)
+      if (rows > 0) "succeeded: updated event_id=${params.event_id}"
+      else "failed: no event with event_id=${params.event_id}"
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to update calendar event: $parameters", e)
+      "failed: ${e.message}"
+    }
+  }
+
+  suspend fun deleteCalendarEvent(
+    context: Context,
+    parameters: String,
+    requestPermission: suspend (String) -> Boolean,
+  ): String {
+    if (!ensureCalendarPermissions(context, requestPermission)) {
+      return "failed: calendar permission denied by user"
+    }
+    return try {
+      val params =
+        Moshi.Builder().build().adapter(DeleteCalendarEventParams::class.java).fromJson(parameters)
+          ?: return "failed: could not parse parameters"
+      val rows =
+        context.contentResolver.delete(
+          ContentUris.withAppendedId(Events.CONTENT_URI, params.event_id),
+          null,
+          null,
+        )
+      if (rows > 0) "succeeded: deleted event_id=${params.event_id}"
+      else "failed: no event with event_id=${params.event_id}"
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to delete calendar event: $parameters", e)
+      "failed: ${e.message}"
+    }
+  }
+
+  private suspend fun ensureCalendarPermissions(
+    context: Context,
+    requestPermission: suspend (String) -> Boolean,
+  ): Boolean {
+    for (permission in listOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)) {
+      if (
+        checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED &&
+          !requestPermission(permission)
+      ) {
+        Log.e(TAG, "$permission denied by user")
+        return false
+      }
+    }
+    return true
+  }
+
+  /** Returns the primary writable calendar, or the first writable one. */
+  private fun findWritableCalendarId(context: Context): Long? {
+    val projection = arrayOf(Calendars._ID, Calendars.IS_PRIMARY)
+    val selection = "${Calendars.CALENDAR_ACCESS_LEVEL} >= ? AND ${Calendars.VISIBLE} = 1"
+    val args = arrayOf(Calendars.CAL_ACCESS_CONTRIBUTOR.toString())
+    context.contentResolver.query(Calendars.CONTENT_URI, projection, selection, args, null)?.use { c
+      ->
+      var first: Long? = null
+      while (c.moveToNext()) {
+        val id = c.getLong(0)
+        if (c.getInt(1) == 1) return id
+        if (first == null) first = id
+      }
+      return first
+    }
+    return null
+  }
+
+  /** Parses the model's date-times, with or without seconds. */
+  private fun parseDateTimeMillis(value: String): Long? {
+    val patterns =
+      listOf("yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm")
+    for (pattern in patterns) {
+      try {
+        val format = SimpleDateFormat(pattern, Locale.US).apply { isLenient = false }
+        format.parse(value.trim())?.let {
+          return it.time
+        }
+      } catch (_: Exception) {}
+    }
+    return null
   }
 
   fun scheduleNotification(context: Context, parameters: String): String {

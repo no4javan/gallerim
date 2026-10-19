@@ -20,3 +20,5 @@ To schedule an event, you must follow these exact steps:
         - `description`: the description of the event. String.
         - `begin_time`: the start time of the event in YYYY-MM-DDTHH:MM:SS format. String.
         - `end_time`: the end time of the event in YYYY-MM-DDTHH:MM:SS format. String.
+4. The event is saved directly to the user's calendar. The result contains its `event_id`. If the result says the calendar app was opened instead, tell the user they need to tap save there.
+5. Keep the event title in the language the user used (for example Persian).
