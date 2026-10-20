@@ -88,6 +88,14 @@ import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import com.google.ai.edge.gallery.proto.ChatSessionProto
+import dagger.hilt.android.EntryPointAccessors
 import java.util.Calendar
 import kotlinx.coroutines.launch
 
@@ -132,9 +140,23 @@ fun PersianShell(
   onBenchmarkClicked: (Model) -> Unit,
   onOpenTasks: () -> Unit,
   onOpenVoice: () -> Unit,
+  onOpenSession: (ChatSessionProto) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val uiState by modelManagerViewModel.uiState.collectAsState()
+  val context = LocalContext.current
+  val sessionsFlow = remember {
+    EntryPointAccessors.fromApplication(context.applicationContext, SessionsEntryPoint::class.java)
+      .llmSessionManager()
+      .chatSessions
+  }
+  val allSessions by sessionsFlow.collectAsState(initial = emptyList())
+  val chatSessions =
+    remember(allSessions) {
+      allSessions
+        .filter { it.taskId == BuiltInTaskId.LLM_AGENT_CHAT && it.messagesCount > 0 }
+        .sortedByDescending { it.timestampMs }
+    }
   var currentTab by rememberSaveable { mutableStateOf(ShellTab.CHAT) }
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
@@ -170,6 +192,12 @@ fun PersianShell(
             onClick = { currentTab = tab },
             icon = { Icon(tab.icon, contentDescription = null) },
             label = { Text(tab.label) },
+            colors =
+              NavigationBarItemDefaults.colors(
+                selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                selectedTextColor = MaterialTheme.colorScheme.primary,
+                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+              ),
           )
         }
       }
@@ -186,6 +214,17 @@ fun PersianShell(
           onOpenTools = { currentTab = ShellTab.TOOLS },
           onOpenTaskById = openTaskById,
           onOpenTasks = onOpenTasks,
+          sessions = chatSessions,
+          onOpenSession = { session ->
+            if (chatModel != null) {
+              onOpenSession(session)
+            } else {
+              currentTab = ShellTab.MODELS
+              scope.launch {
+                snackbarHostState.showSnackbar("اول یک مدل گفتگو مثل Gemma 4 دانلود کن.")
+              }
+            }
+          },
           onOpenVoice = {
             if (chatModel != null) {
               onOpenVoice()
@@ -253,10 +292,13 @@ private fun ChatStartTab(
   onOpenTools: () -> Unit,
   onOpenTaskById: (String) -> Unit,
   onOpenTasks: () -> Unit,
+  sessions: List<ChatSessionProto>,
+  onOpenSession: (ChatSessionProto) -> Unit,
   onOpenVoice: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  var input by rememberSaveable { mutableStateOf("") }
+  var input by rememberSaveable
+  var showAllSessions by rememberSaveable { mutableStateOf(false) } { mutableStateOf("") }
   val send = {
     val text = input.trim()
     if (text.isNotEmpty()) {
@@ -326,6 +368,38 @@ private fun ChatStartTab(
           modifier = Modifier.weight(1f),
         )
       }
+      if (sessions.isNotEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(
+            "گفتگوهای قبلی",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+          )
+          if (sessions.size > RECENT_SESSIONS) {
+            TextButton(onClick = { showAllSessions = !showAllSessions }) {
+              Text(if (showAllSessions) "کمتر" else "همه (${sessions.size})".toPersianDigits())
+            }
+          }
+        }
+        Column(
+          modifier =
+            Modifier.clip(RoundedCornerShape(18.dp))
+              .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+        ) {
+          val shown = if (showAllSessions) sessions else sessions.take(RECENT_SESSIONS)
+          shown.forEachIndexed { index, session ->
+            SessionRow(session = session, onClick = { onOpenSession(session) })
+            if (index < shown.lastIndex) {
+              HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+              )
+            }
+          }
+        }
+      }
     }
 
     Composer(
@@ -334,6 +408,37 @@ private fun ChatStartTab(
       onSend = send,
       onVoice = onOpenVoice,
       modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+    )
+  }
+}
+
+private const val RECENT_SESSIONS = 4
+
+@Composable
+private fun SessionRow(session: ChatSessionProto, onClick: () -> Unit) {
+  Row(
+    modifier =
+      Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Icon(
+      Icons.Outlined.History,
+      contentDescription = null,
+      tint = MaterialTheme.colorScheme.onSurfaceVariant,
+      modifier = Modifier.size(20.dp),
+    )
+    Text(
+      session.title.ifBlank { "گفتگوی بی‌نام" },
+      style = MaterialTheme.typography.bodyLarge,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.weight(1f),
+    )
+    Text(
+      formatDue(session.timestampMs),
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
   }
 }
@@ -444,8 +549,8 @@ private fun Composer(
         modifier = Modifier.size(48.dp),
         colors =
           IconButtonDefaults.iconButtonColors(
-            containerColor = Color(0xFFF2A93B),
-            contentColor = Color(0xFF0E1726),
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
           ),
       ) {
         if (empty) {

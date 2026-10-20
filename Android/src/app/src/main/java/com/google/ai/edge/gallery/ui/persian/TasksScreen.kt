@@ -98,12 +98,13 @@ private fun startOfDay(offsetDays: Int): Long =
 private fun atTime(offsetDays: Int, hour: Int, minute: Int = 0): Long =
   startOfDay(offsetDays) + (hour * 60L + minute) * 60_000L
 
-/** "امروز ۱۸:۰۰", "فردا ۰۹:۰۰" or "۲۰۲۶/۱۰/۲۵ ۰۹:۰۰". */
+/** "دیروز", "امروز ۱۸:۰۰", "فردا ۰۹:۰۰" or "۲۰۲۶/۱۰/۲۵ ۰۹:۰۰". */
 fun formatDue(millis: Long): String {
   val cal = Calendar.getInstance().apply { timeInMillis = millis }
   val time = "%02d:%02d".format(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
   val day =
     when {
+      millis >= startOfDay(-1) && millis < startOfDay(0) -> "دیروز"
       millis >= startOfDay(0) && millis < startOfDay(1) -> "امروز"
       millis >= startOfDay(1) && millis < startOfDay(2) -> "فردا"
       else ->
@@ -262,9 +263,10 @@ fun TasksScreen(navigateUp: () -> Unit) {
               modifier = Modifier.size(48.dp),
               colors =
                 IconButtonDefaults.iconButtonColors(
-                  containerColor = Color(0xFFF2A93B),
-                  contentColor = Color(0xFF0E1726),
-                  disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                  containerColor = MaterialTheme.colorScheme.primary,
+                  contentColor = MaterialTheme.colorScheme.onPrimary,
+                  disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                  disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
             ) {
               Icon(Icons.Rounded.Add, contentDescription = "افزودن")

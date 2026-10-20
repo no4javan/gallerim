@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.google.ai.edge.gallery.agent.sessions.LlmSessionManager
 import com.google.ai.edge.gallery.customtasks.agentchat.AgentTools
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerBottomSheet
 import com.google.ai.edge.gallery.customtasks.agentchat.McpManagerViewModel
@@ -76,6 +77,13 @@ import dagger.hilt.components.SingletonComponent
 @InstallIn(SingletonComponent::class)
 interface AgentToolsEntryPoint {
   fun agentTools(): AgentTools
+}
+
+/** Lets the start screen list past chats without the chat screen's view model. */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface SessionsEntryPoint {
+  fun llmSessionManager(): LlmSessionManager
 }
 
 /** Persian names and one-line explanations for the built-in skills. */

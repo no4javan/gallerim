@@ -82,6 +82,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.SAMPLE_RATE
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.firebaseAnalytics
+import com.google.ai.edge.gallery.proto.ChatSessionProto
 import com.google.ai.edge.gallery.skills.formatSelectedSkills
 import com.google.ai.edge.gallery.tools.AskInfoToolAction
 import com.google.ai.edge.gallery.tools.AskMcpToolCallPermissionAction
@@ -216,6 +217,7 @@ fun AgentChatScreen(
 
   // A prompt typed on the app's own start screen is sent as soon as the model is ready.
   var shellPrompt by remember { mutableStateOf(ShellPromptHandoff.take()) }
+  var restoreSessionTrigger by remember { mutableStateOf<ChatSessionProto?>(null) }
   LaunchedEffect(shellPrompt, modelInitStatus, llmChatUiState.isResettingSession) {
     val prompt = shellPrompt ?: return@LaunchedEffect
     if (
@@ -223,6 +225,10 @@ fun AgentChatScreen(
         !llmChatUiState.isResettingSession
     ) {
       shellPrompt = null
+      prompt.session?.let {
+        restoreSessionTrigger = it
+        return@LaunchedEffect
+      }
       val audio = prompt.audio
       sendMessageTrigger =
         SendMessageTrigger(
@@ -611,6 +617,7 @@ fun AgentChatScreen(
       }
     },
     sendMessageTrigger = sendMessageTrigger,
+    restoreSessionTrigger = restoreSessionTrigger,
   )
 
   if (showAskInfoDialog && currentAskInfoAction != null) {

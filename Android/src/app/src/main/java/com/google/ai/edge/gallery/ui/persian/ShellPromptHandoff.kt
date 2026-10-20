@@ -16,6 +16,8 @@
 
 package com.google.ai.edge.gallery.ui.persian
 
+import com.google.ai.edge.gallery.proto.ChatSessionProto
+
 /**
  * Carries a prompt the user typed on the start screen into the chat screen.
  *
@@ -24,13 +26,24 @@ package com.google.ai.edge.gallery.ui.persian
  * where it would look like a deep link, and is sent without asking again.
  */
 object ShellPromptHandoff {
-  /** A prompt, and optionally a voice recording (16 kHz mono PCM) that goes with it. */
-  class Pending(val text: String, val audio: ByteArray? = null)
+  /**
+   * A prompt, optionally with a voice recording (16 kHz mono PCM), or a past chat to reopen
+   * instead.
+   */
+  class Pending(
+    val text: String = "",
+    val audio: ByteArray? = null,
+    val session: ChatSessionProto? = null,
+  )
 
   @Volatile private var pending: Pending? = null
 
   fun put(prompt: String, audio: ByteArray? = null) {
     pending = Pending(prompt, audio)
+  }
+
+  fun putSession(session: ChatSessionProto) {
+    pending = Pending(session = session)
   }
 
   /** Returns the waiting prompt once, then forgets it. */

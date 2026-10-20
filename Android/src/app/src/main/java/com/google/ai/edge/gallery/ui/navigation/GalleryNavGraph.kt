@@ -216,6 +216,24 @@ fun GalleryNavHost(
         onBenchmarkClicked = { model -> navController.navigate("$ROUTE_BENCHMARK/${model.name}") },
         onOpenTasks = { navController.navigate(ROUTE_TASKS) },
         onOpenVoice = { navController.navigate(ROUTE_VOICE) },
+        onOpenSession = { session ->
+          val agentTask = modelManagerUiState.tasks.find { it.id == BuiltInTaskId.LLM_AGENT_CHAT }
+          val downloaded =
+            agentTask?.models.orEmpty().filter {
+              modelManagerUiState.modelDownloadStatus[it.name]?.status ==
+                ModelDownloadStatusType.SUCCEEDED
+            }
+          // Reopen with the model the chat was held with when it is still on the phone.
+          val model =
+            downloaded.find { it.name == session.originalModel }
+              ?: downloaded.find { it.name == modelManagerUiState.selectedModel.name }
+              ?: downloaded.firstOrNull()
+          if (model != null) {
+            modelManagerViewModel.selectModel(model)
+            ShellPromptHandoff.putSession(session)
+            navController.navigate("$ROUTE_MODEL/${BuiltInTaskId.LLM_AGENT_CHAT}/${model.name}")
+          }
+        },
         modifier = modifier,
       )
     }

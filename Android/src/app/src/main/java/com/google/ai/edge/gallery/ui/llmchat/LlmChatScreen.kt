@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,7 @@ import com.google.ai.edge.gallery.ui.common.chat.ChatMessageImage
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageMapper
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
 import com.google.ai.edge.gallery.ui.common.chat.ChatView
+import com.google.ai.edge.gallery.proto.ChatSessionProto
 import com.google.ai.edge.gallery.ui.common.chat.SendMessageTrigger
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.emptyStateContent
@@ -93,6 +95,7 @@ fun LlmChatScreen(
   skillCount: Int = 0,
   mcpCount: Int = 0,
   mcpToolsCount: Int = 0,
+  restoreSessionTrigger: ChatSessionProto? = null,
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -117,6 +120,7 @@ fun LlmChatScreen(
     showImagePicker = showImagePicker,
     showAudioPicker = showAudioPicker,
     getActiveSkills = getActiveSkills,
+    restoreSessionTrigger = restoreSessionTrigger,
   )
 }
 
@@ -246,11 +250,50 @@ fun ChatViewWrapper(
   skillCount: Int = 0,
   mcpCount: Int = 0,
   mcpToolsCount: Int = 0,
+  restoreSessionTrigger: ChatSessionProto? = null,
 ) {
   val context = LocalContext.current
   val task = modelManagerViewModel.getTaskById(id = taskId)!!
   val scope = rememberCoroutineScope()
   var sessionRestoreJob by remember { mutableStateOf<Job?>(null) }
+
+  val restoreSession: (ChatSessionProto) -> Unit = { session ->
+    sessionRestoreJob?.cancel()
+    val selectedModel = modelManagerViewModel.uiState.value.selectedModel
+    if (onResetSessionClickedOverride != null) {
+      viewModel.stopResponse(model = selectedModel)
+      viewModel.setIsResettingSession(true)
+      sessionRestoreJob = scope.launch {
+        try {
+          val messages = ChatMessageMapper.deserializeProtoMessages(session.messagesList)
+          ensureActive()
+          viewModel.currentSessionId = session.sessionId
+          viewModel.setRestoredMessages(model = selectedModel, messages = messages)
+          onResetSessionClickedOverride(task, selectedModel, messages, /* clearHistory= */ false)
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          Log.e(TAG, "Failed to restore session: ${e.message}", e)
+        } finally {
+          if (coroutineContext.isActive) {
+            viewModel.setIsResettingSession(false)
+          }
+        }
+      }
+    } else {
+      viewModel.restoreSession(
+        session = session,
+        task = task,
+        model = selectedModel,
+        systemInstruction = curSystemPrompt,
+        supportImage = showImagePicker,
+        supportAudio = showAudioPicker,
+      )
+    }
+  }
+
+  // A past chat picked outside this screen (e.g. the start screen's history list).
+  LaunchedEffect(restoreSessionTrigger) { restoreSessionTrigger?.let(restoreSession) }
 
   ChatView(
     task = task,
@@ -339,40 +382,7 @@ fun ChatViewWrapper(
       }
     },
     onBenchmarkClicked = { _, _, _, _ -> },
-    onRestoreSessionClicked = { session ->
-      sessionRestoreJob?.cancel()
-      val selectedModel = modelManagerViewModel.uiState.value.selectedModel
-      if (onResetSessionClickedOverride != null) {
-        viewModel.stopResponse(model = selectedModel)
-        viewModel.setIsResettingSession(true)
-        sessionRestoreJob = scope.launch {
-          try {
-            val messages = ChatMessageMapper.deserializeProtoMessages(session.messagesList)
-            ensureActive()
-            viewModel.currentSessionId = session.sessionId
-            viewModel.setRestoredMessages(model = selectedModel, messages = messages)
-            onResetSessionClickedOverride(task, selectedModel, messages, /* clearHistory= */ false)
-          } catch (e: CancellationException) {
-            throw e
-          } catch (e: Exception) {
-            Log.e(TAG, "Failed to restore session: ${e.message}", e)
-          } finally {
-            if (coroutineContext.isActive) {
-              viewModel.setIsResettingSession(false)
-            }
-          }
-        }
-      } else {
-        viewModel.restoreSession(
-          session = session,
-          task = task,
-          model = selectedModel,
-          systemInstruction = curSystemPrompt,
-          supportImage = showImagePicker,
-          supportAudio = showAudioPicker,
-        )
-      }
-    },
+    onRestoreSessionClicked = restoreSession,
     onNewChatClicked = {
       sessionRestoreJob?.cancel()
       val selectedModel = modelManagerViewModel.uiState.value.selectedModel

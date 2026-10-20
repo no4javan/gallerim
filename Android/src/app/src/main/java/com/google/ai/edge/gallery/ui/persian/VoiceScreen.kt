@@ -61,7 +61,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -196,8 +195,11 @@ fun VoiceScreen(chatModel: Model?, navigateUp: () -> Unit, onSend: (ByteArray) -
           modifier = Modifier.size(112.dp),
           colors =
             IconButtonDefaults.filledIconButtonColors(
-              containerColor = if (recording) Color(0xFFF2A93B) else MaterialTheme.colorScheme.primary,
-              contentColor = if (recording) Color(0xFF0E1726) else MaterialTheme.colorScheme.onPrimary,
+              containerColor =
+                if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+              contentColor =
+                if (recording) MaterialTheme.colorScheme.onError
+                else MaterialTheme.colorScheme.onPrimary,
             ),
         ) {
           Icon(
