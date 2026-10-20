@@ -68,6 +68,7 @@ import androidx.navigation.navArgument
 import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskDataForBuiltinTask
+import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
@@ -85,11 +86,13 @@ import com.google.ai.edge.gallery.ui.modelmanager.MODEL_ALLOWLIST_TEST_FILE_PATH
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.notifications.NotificationsScreen
+import com.google.ai.edge.gallery.ui.persian.PersianShell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 private const val TAG = "AGGalleryNavGraph"
 private const val ROUTE_HOMESCREEN = "homepage"
+private const val ROUTE_SHELL = "persian_shell"
 private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
@@ -182,10 +185,35 @@ fun GalleryNavHost(
 
   NavHost(
     navController = navController,
-    startDestination = ROUTE_HOMESCREEN,
+    startDestination = ROUTE_SHELL,
     enterTransition = { EnterTransition.None },
     exitTransition = { ExitTransition.None },
   ) {
+    // Persian assistant: chat, tools, skills and models tabs.
+    composable(route = ROUTE_SHELL) {
+      PersianShell(
+        modelManagerViewModel = modelManagerViewModel,
+        tosViewModel = tosViewModel,
+        onStartChat = { model, prompt ->
+          modelManagerViewModel.selectModel(model)
+          val route = "$ROUTE_MODEL/${BuiltInTaskId.LLM_AGENT_CHAT}/${model.name}"
+          navController.navigate(
+            if (prompt.isNullOrEmpty()) route else "$route?query=${Uri.encode(prompt)}"
+          )
+        },
+        onOpenTask = { task ->
+          pickedTask = task
+          enableModelListAnimation = true
+          navController.navigate(ROUTE_MODEL_LIST)
+        },
+        onModelSelected = { task, model ->
+          navController.navigate("$ROUTE_MODEL/${task.id}/${model.name}")
+        },
+        onBenchmarkClicked = { model -> navController.navigate("$ROUTE_BENCHMARK/${model.name}") },
+        modifier = modifier,
+      )
+    }
+
     // Home screen.
     composable(route = ROUTE_HOMESCREEN) {
       HomeScreen(
@@ -211,14 +239,14 @@ fun GalleryNavHost(
     composable(
       route = ROUTE_MODEL_LIST,
       enterTransition = {
-        if (initialState.destination.route == ROUTE_HOMESCREEN) {
+        if (initialState.destination.route in setOf(ROUTE_HOMESCREEN, ROUTE_SHELL)) {
           slideEnter()
         } else {
           EnterTransition.None
         }
       },
       exitTransition = {
-        if (targetState.destination.route == ROUTE_HOMESCREEN) {
+        if (targetState.destination.route in setOf(ROUTE_HOMESCREEN, ROUTE_SHELL)) {
           slideExit()
         } else {
           ExitTransition.None

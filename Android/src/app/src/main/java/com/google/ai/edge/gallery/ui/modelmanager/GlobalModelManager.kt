@@ -110,6 +110,8 @@ fun GlobalModelManager(
   modifier: Modifier = Modifier,
   tosViewModel: TosViewModel? = null,
   initialImportUrl: String? = null,
+  // False when embedded as a tab, where there is nothing to close or navigate back to.
+  showCloseButton: Boolean = true,
 ) {
   val uiState by viewModel.uiState.collectAsState()
   val builtInModels = remember { mutableStateListOf<Model>() }
@@ -257,7 +259,7 @@ fun GlobalModelManager(
   }
 
   // Handle system's edge swipe.
-  BackHandler { navigateUp() }
+  BackHandler(enabled = showCloseButton) { navigateUp() }
 
   Scaffold(
     modifier = modifier,
@@ -287,12 +289,14 @@ fun GlobalModelManager(
         },
         // The "action" component at the right.
         actions = {
-          IconButton(onClick = { navigateUp() }) {
-            Icon(
-              imageVector = Icons.Rounded.Close,
-              contentDescription = stringResource(R.string.cd_close_icon),
-              tint = MaterialTheme.colorScheme.onSurface,
-            )
+          if (showCloseButton) {
+            IconButton(onClick = { navigateUp() }) {
+              Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.cd_close_icon),
+                tint = MaterialTheme.colorScheme.onSurface,
+              )
+            }
           }
         },
         modifier = modifier,

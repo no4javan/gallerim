@@ -17,6 +17,9 @@
 package com.google.ai.edge.gallery
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -28,5 +31,8 @@ fun GalleryApp(
   navController: NavHostController = rememberNavController(),
   modelManagerViewModel: ModelManagerViewModel,
 ) {
-  GalleryNavHost(navController = navController, modelManagerViewModel = modelManagerViewModel)
+  // The assistant is Persian-first, so the whole app is laid out right to left.
+  CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+    GalleryNavHost(navController = navController, modelManagerViewModel = modelManagerViewModel)
+  }
 }
