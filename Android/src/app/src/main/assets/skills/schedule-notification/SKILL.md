@@ -1,6 +1,6 @@
 ---
 name: schedule-notification
-description: Schedule a notification for a specific date or repeating daily.
+description: Schedule a reminder notification for a specific date and time, or repeating daily (Persian: یادم بنداز، یادآوری کن، یادآوری بذار، هر روز ساعت … یادم بنداز، «ساعت ۹ شب یادم بنداز قرصم رو بخورم»).
 ---
 
 # Schedule Notification

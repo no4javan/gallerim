@@ -41,6 +41,10 @@ private val TOOL_NAMES =
     "schedule_notification" to "زمان‌بندی یادآوری",
     "send_email" to "ایمیل",
     "send_sms" to "پیامک",
+    "manage-tasks" to "کارها",
+    "add_task" to "افزودن کار",
+    "list_tasks" to "خواندن کارها",
+    "complete_task" to "انجام کار",
   )
 
 private val PATTERNS =

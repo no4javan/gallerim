@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings added by the Gallerim fork. Persian versions are in values-fa/strings_gallerim.xml. -->
+<resources>
+  <string name="model_list_on_device_title">On this phone</string>
+  <string name="model_list_available_title">Available to download</string>
+</resources>

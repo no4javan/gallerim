@@ -24,14 +24,17 @@ package com.google.ai.edge.gallery.ui.persian
  * where it would look like a deep link, and is sent without asking again.
  */
 object ShellPromptHandoff {
-  @Volatile private var pending: String? = null
+  /** A prompt, and optionally a voice recording (16 kHz mono PCM) that goes with it. */
+  class Pending(val text: String, val audio: ByteArray? = null)
 
-  fun put(prompt: String) {
-    pending = prompt
+  @Volatile private var pending: Pending? = null
+
+  fun put(prompt: String, audio: ByteArray? = null) {
+    pending = Pending(prompt, audio)
   }
 
   /** Returns the waiting prompt once, then forgets it. */
-  fun take(): String? {
+  fun take(): Pending? {
     val prompt = pending
     pending = null
     return prompt

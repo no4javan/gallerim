@@ -88,12 +88,17 @@ import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.notifications.NotificationsScreen
 import com.google.ai.edge.gallery.ui.persian.PersianShell
 import com.google.ai.edge.gallery.ui.persian.ShellPromptHandoff
+import com.google.ai.edge.gallery.ui.persian.TasksScreen
+import com.google.ai.edge.gallery.ui.persian.VOICE_PROMPT
+import com.google.ai.edge.gallery.ui.persian.VoiceScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 private const val TAG = "AGGalleryNavGraph"
 private const val ROUTE_HOMESCREEN = "homepage"
 private const val ROUTE_SHELL = "persian_shell"
+private const val ROUTE_TASKS = "persian_tasks"
+private const val ROUTE_VOICE = "persian_voice"
 private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
@@ -209,7 +214,48 @@ fun GalleryNavHost(
           navController.navigate("$ROUTE_MODEL/${task.id}/${model.name}")
         },
         onBenchmarkClicked = { model -> navController.navigate("$ROUTE_BENCHMARK/${model.name}") },
+        onOpenTasks = { navController.navigate(ROUTE_TASKS) },
+        onOpenVoice = { navController.navigate(ROUTE_VOICE) },
         modifier = modifier,
+      )
+    }
+
+    // Tasks and reminders tool.
+    composable(
+      route = ROUTE_TASKS,
+      enterTransition = { slideEnter() },
+      exitTransition = { slideExit() },
+    ) {
+      TasksScreen(navigateUp = { navController.navigateUp() })
+    }
+
+    // Voice mode: records a clip and hands it to the agent chat.
+    composable(
+      route = ROUTE_VOICE,
+      enterTransition = { slideUpEnter() },
+      exitTransition = { slideDownExit() },
+    ) {
+      val agentTask = modelManagerUiState.tasks.find { it.id == BuiltInTaskId.LLM_AGENT_CHAT }
+      val downloaded =
+        agentTask?.models.orEmpty().filter {
+          modelManagerUiState.modelDownloadStatus[it.name]?.status ==
+            ModelDownloadStatusType.SUCCEEDED
+        }
+      val chatModel =
+        downloaded.find { it.name == modelManagerUiState.selectedModel.name }
+          ?: downloaded.firstOrNull()
+      VoiceScreen(
+        chatModel = chatModel,
+        navigateUp = { navController.navigateUp() },
+        onSend = { audio ->
+          if (chatModel != null) {
+            modelManagerViewModel.selectModel(chatModel)
+            ShellPromptHandoff.put(VOICE_PROMPT, audio)
+            navController.navigate("$ROUTE_MODEL/${BuiltInTaskId.LLM_AGENT_CHAT}/${chatModel.name}") {
+              popUpTo(ROUTE_VOICE) { inclusive = true }
+            }
+          }
+        },
       )
     }
 
@@ -503,6 +549,9 @@ fun GalleryNavHost(
       } else {
         Log.e(TAG, "Malformed deep link URI received: $data")
       }
+    } else if (data.host == ROUTE_TASKS) {
+      // Task reminders open the tasks screen.
+      navController.navigate(ROUTE_TASKS)
     } else if (data.host == "global_model_manager" || data.host == "import") {
       val route =
           ROUTE_MODEL_MANAGER

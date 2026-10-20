@@ -23,11 +23,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,12 +44,12 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Event
-import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Widgets
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -132,6 +130,8 @@ fun PersianShell(
   onOpenTask: (Task) -> Unit,
   onModelSelected: (Task, Model) -> Unit,
   onBenchmarkClicked: (Model) -> Unit,
+  onOpenTasks: () -> Unit,
+  onOpenVoice: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val uiState by modelManagerViewModel.uiState.collectAsState()
@@ -140,10 +140,14 @@ fun PersianShell(
   val scope = rememberCoroutineScope()
 
   val agentTask = uiState.tasks.find { it.id == BuiltInTaskId.LLM_AGENT_CHAT }
-  val chatModel =
-    agentTask?.models?.firstOrNull {
+  val downloadedChatModels =
+    agentTask?.models.orEmpty().filter {
       uiState.modelDownloadStatus[it.name]?.status == ModelDownloadStatusType.SUCCEEDED
     }
+  // The model picked on the models tab, or the first downloaded one.
+  val chatModel =
+    downloadedChatModels.find { it.name == uiState.selectedModel.name }
+      ?: downloadedChatModels.firstOrNull()
 
   val startChat: (String?) -> Unit = { prompt ->
     if (chatModel != null) {
@@ -181,16 +185,29 @@ fun PersianShell(
           onOpenModels = { currentTab = ShellTab.MODELS },
           onOpenTools = { currentTab = ShellTab.TOOLS },
           onOpenTaskById = openTaskById,
+          onOpenTasks = onOpenTasks,
+          onOpenVoice = {
+            if (chatModel != null) {
+              onOpenVoice()
+            } else {
+              currentTab = ShellTab.MODELS
+              scope.launch {
+                snackbarHostState.showSnackbar("اول یک مدل گفتگو مثل Gemma 4 دانلود کن.")
+              }
+            }
+          },
           modifier = Modifier.padding(innerPadding),
         )
       ShellTab.TOOLS ->
         ToolsTab(
           tasks = uiState.tasks.filter { it.id !in HIDDEN_TOOL_IDS },
           onOpenTask = onOpenTask,
+          onOpenTasks = onOpenTasks,
+          onOpenVoice = onOpenVoice,
           modifier = Modifier.padding(innerPadding),
         )
       ShellTab.SKILLS ->
-        SkillsTab(onOpenChat = { startChat(null) }, modifier = Modifier.padding(innerPadding))
+        SkillsTab(chatModel = chatModel, modifier = Modifier.padding(innerPadding))
       ShellTab.MODELS ->
         // GlobalModelManager applies its modifier to its top bar too, so pad a wrapper instead.
         Box(modifier = Modifier.padding(bottomOnly).consumeWindowInsets(bottomOnly)) {
@@ -201,6 +218,16 @@ fun PersianShell(
             onModelSelected = onModelSelected,
             onBenchmarkClicked = onBenchmarkClicked,
             showCloseButton = false,
+            groupByDownloadState = true,
+            header = {
+              ActiveModelCard(
+                chatTask = agentTask,
+                chatModel = chatModel,
+                downloadedChatModels = downloadedChatModels,
+                modelManagerViewModel = modelManagerViewModel,
+                onStartChat = { startChat(null) },
+              )
+            },
           )
         }
     }
@@ -225,6 +252,8 @@ private fun ChatStartTab(
   onOpenModels: () -> Unit,
   onOpenTools: () -> Unit,
   onOpenTaskById: (String) -> Unit,
+  onOpenTasks: () -> Unit,
+  onOpenVoice: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   var input by rememberSaveable { mutableStateOf("") }
@@ -279,12 +308,12 @@ private fun ChatStartTab(
       }
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SuggestionCard(
-          icon = Icons.Outlined.GraphicEq,
-          title = "صدا رو بنویس",
-          subtitle = "رونویسی و ترجمه",
+          icon = Icons.Outlined.Checklist,
+          title = "کارها و یادآوری‌ها",
+          subtitle = "لیست کارهای امروز و فردا",
           tint = MaterialTheme.colorScheme.tertiary,
           container = MaterialTheme.colorScheme.tertiaryContainer,
-          onClick = { onOpenTaskById(BuiltInTaskId.LLM_ASK_AUDIO) },
+          onClick = onOpenTasks,
           modifier = Modifier.weight(1f),
         )
         SuggestionCard(
@@ -303,6 +332,7 @@ private fun ChatStartTab(
       value = input,
       onValueChange = { input = it },
       onSend = send,
+      onVoice = onOpenVoice,
       modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
     )
   }
@@ -378,6 +408,7 @@ private fun Composer(
   value: String,
   onValueChange: (String) -> Unit,
   onSend: () -> Unit,
+  onVoice: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   Surface(
@@ -406,25 +437,35 @@ private fun Composer(
             unfocusedIndicatorColor = Color.Transparent,
           ),
       )
+      // With nothing typed the button opens voice mode, as in most messengers.
+      val empty = value.isBlank()
       IconButton(
-        onClick = onSend,
-        enabled = value.isNotBlank(),
+        onClick = if (empty) onVoice else onSend,
         modifier = Modifier.size(48.dp),
         colors =
           IconButtonDefaults.iconButtonColors(
             containerColor = Color(0xFFF2A93B),
             contentColor = Color(0xFF0E1726),
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
           ),
       ) {
-        Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "بفرست")
+        if (empty) {
+          Icon(Icons.Rounded.Mic, contentDescription = "حالت صوتی")
+        } else {
+          Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "بفرست")
+        }
       }
     }
   }
 }
 
 @Composable
-private fun ToolsTab(tasks: List<Task>, onOpenTask: (Task) -> Unit, modifier: Modifier = Modifier) {
+private fun ToolsTab(
+  tasks: List<Task>,
+  onOpenTask: (Task) -> Unit,
+  onOpenTasks: () -> Unit,
+  onOpenVoice: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
   LazyVerticalGrid(
     columns = GridCells.Fixed(2),
     modifier = modifier.fillMaxSize(),
@@ -442,67 +483,80 @@ private fun ToolsTab(tasks: List<Task>, onOpenTask: (Task) -> Unit, modifier: Mo
         )
       }
     }
+    item(key = "persian_tasks") {
+      ToolCard(
+        title = "کارها و یادآوری‌ها",
+        subtitle = "لیست کار با یادآوری",
+        onClick = onOpenTasks,
+        icon = { mod, tint -> Icon(Icons.Outlined.Checklist, null, tint = tint, modifier = mod) },
+      )
+    }
+    item(key = "persian_voice") {
+      ToolCard(
+        title = "حالت صوتی",
+        subtitle = "حرف بزن، دستیار گوش می‌دهد",
+        onClick = onOpenVoice,
+        icon = { mod, tint -> Icon(Icons.Rounded.Mic, null, tint = tint, modifier = mod) },
+      )
+    }
     items(tasks, key = { it.id }) { task ->
       val (title, subtitle) = TOOL_TEXTS[task.id] ?: (task.label to task.description)
-      Row(
-        modifier =
-          Modifier.clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-            .clickable { onOpenTask(task) }
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-      ) {
-        Box(
-          modifier =
-            Modifier.size(40.dp)
-              .clip(RoundedCornerShape(14.dp))
-              .background(MaterialTheme.colorScheme.primaryContainer),
-          contentAlignment = Alignment.Center,
-        ) {
-          val iconModifier = Modifier.size(20.dp)
-          val tint = MaterialTheme.colorScheme.primary
+      ToolCard(
+        title = title,
+        subtitle = subtitle,
+        onClick = { onOpenTask(task) },
+        icon = { mod, tint ->
           when {
-            task.icon != null ->
-              Icon(task.icon, contentDescription = null, tint = tint, modifier = iconModifier)
+            task.icon != null -> Icon(task.icon, contentDescription = null, tint = tint, modifier = mod)
             task.iconVectorResourceId != null ->
               Icon(
                 painterResource(task.iconVectorResourceId),
                 contentDescription = null,
                 tint = tint,
-                modifier = iconModifier,
+                modifier = mod,
               )
-            else -> Icon(Icons.Outlined.Widgets, contentDescription = null, tint = tint, modifier = iconModifier)
+            else -> Icon(Icons.Outlined.Widgets, contentDescription = null, tint = tint, modifier = mod)
           }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-          Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
-          Text(
-            subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            fontSize = 11.sp,
-          )
-        }
-      }
+        },
+      )
     }
   }
 }
 
 @Composable
-private fun SkillsTab(onOpenChat: () -> Unit, modifier: Modifier = Modifier) {
-  Column(
-    modifier = modifier.fillMaxSize().padding(16.dp),
-    verticalArrangement = Arrangement.spacedBy(12.dp),
+private fun ToolCard(
+  title: String,
+  subtitle: String,
+  onClick: () -> Unit,
+  icon: @Composable (Modifier, Color) -> Unit,
+) {
+  Row(
+    modifier =
+      Modifier.clip(RoundedCornerShape(18.dp))
+        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+        .clickable(onClick = onClick)
+        .padding(10.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    Text("مهارت‌ها", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
-    Text(
-      "صفحه‌ی کامل مهارت‌ها، MCP و دسترسی‌ها در مرحله‌ی بعد اضافه می‌شود. فعلاً مهارت‌ها از دکمه‌ی Skills داخل گفتگو مدیریت می‌شوند.",
-      style = MaterialTheme.typography.bodyMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(modifier = Modifier.height(4.dp))
-    Button(onClick = onOpenChat) { Text("باز کردن گفتگو") }
+    Box(
+      modifier =
+        Modifier.size(40.dp)
+          .clip(RoundedCornerShape(14.dp))
+          .background(MaterialTheme.colorScheme.primaryContainer),
+      contentAlignment = Alignment.Center,
+    ) {
+      icon(Modifier.size(20.dp), MaterialTheme.colorScheme.primary)
+    }
+    Column(modifier = Modifier.weight(1f)) {
+      Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+      Text(
+        subtitle,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2,
+        fontSize = 11.sp,
+      )
+    }
   }
 }

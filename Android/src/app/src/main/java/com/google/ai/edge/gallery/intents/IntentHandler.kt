@@ -31,8 +31,10 @@ import androidx.core.content.ContextCompat.checkSelfPermission
 import androidx.core.net.toUri
 import com.google.ai.edge.gallery.notifications.NotificationScheduleManagerEntryPoint
 import com.google.ai.edge.gallery.proto.ScheduledNotification
+import com.google.ai.edge.gallery.todo.TodoStore
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import dagger.hilt.android.EntryPointAccessors
 import java.lang.Exception
 import java.text.SimpleDateFormat
@@ -93,12 +95,27 @@ enum class IntentAction(val action: String) {
   UPDATE_CALENDAR_EVENT("update_calendar_event"),
   DELETE_CALENDAR_EVENT("delete_calendar_event"),
   GET_CURRENT_DATE_AND_TIME("get_current_date_and_time"),
-  SCHEDULE_NOTIFICATION("schedule_notification");
+  SCHEDULE_NOTIFICATION("schedule_notification"),
+  ADD_TASK("add_task"),
+  LIST_TASKS("list_tasks"),
+  COMPLETE_TASK("complete_task");
 
   companion object {
     fun from(action: String): IntentAction? = entries.find { it.action == action }
   }
 }
+
+@JsonClass(generateAdapter = true)
+data class AddTaskParams(
+  val title: String,
+  val due_time: String? = null,
+  val remind: Boolean? = null,
+)
+
+@JsonClass(generateAdapter = true) data class CompleteTaskParams(val task_id: String)
+
+@JsonClass(generateAdapter = true)
+data class TaskDto(val task_id: String, val title: String, val due_time: String?)
 
 @JsonClass(generateAdapter = true)
 data class ScheduleNotificationParams(
@@ -208,6 +225,9 @@ object IntentHandler {
       IntentAction.SCHEDULE_NOTIFICATION -> {
         scheduleNotification(context, parameters)
       }
+      IntentAction.ADD_TASK -> addTask(context, parameters)
+      IntentAction.LIST_TASKS -> listTasks(context)
+      IntentAction.COMPLETE_TASK -> completeTask(context, parameters)
       null -> "failed"
     }
   }
@@ -508,6 +528,56 @@ object IntentHandler {
     }
   }
 
+  /** Adds an item to the local to-do list, optionally with a reminder at its due time. */
+  fun addTask(context: Context, parameters: String): String {
+    return try {
+      val params =
+        Moshi.Builder().build().adapter(AddTaskParams::class.java).fromJson(parameters)
+          ?: return "failed: could not parse parameters"
+      if (params.title.isBlank()) return "failed: title is empty"
+      val due =
+        params.due_time?.takeIf { it.isNotBlank() }?.let {
+          parseDateTimeMillis(it) ?: return "failed: due_time must be YYYY-MM-DDTHH:MM:SS"
+        }
+      val item =
+        TodoStore.add(context, params.title, due, remind = params.remind ?: (due != null))
+      "succeeded: added task_id=${item.id}" + if (item.remind) " with a reminder" else ""
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to add task: $parameters", e)
+      "failed: ${e.message}"
+    }
+  }
+
+  /** Returns the open to-do items as a JSON list. */
+  fun listTasks(context: Context): String {
+    TodoStore.ensureLoaded(context)
+    val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+    val open =
+      TodoStore.items.value
+        .filter { !it.done }
+        .map { TaskDto(it.id, it.title, it.dueMillis?.let { ms -> format.format(Date(ms)) }) }
+    if (open.isEmpty()) return "[] (the to-do list is empty)"
+    val type = Types.newParameterizedType(List::class.java, TaskDto::class.java)
+    return Moshi.Builder().build().adapter<List<TaskDto>>(type).toJson(open)
+  }
+
+  fun completeTask(context: Context, parameters: String): String {
+    return try {
+      val params =
+        Moshi.Builder().build().adapter(CompleteTaskParams::class.java).fromJson(parameters)
+          ?: return "failed: could not parse parameters"
+      TodoStore.ensureLoaded(context)
+      if (TodoStore.items.value.none { it.id == params.task_id }) {
+        return "failed: no task with task_id=${params.task_id}"
+      }
+      TodoStore.setDone(context, params.task_id, done = true)
+      "succeeded: marked task_id=${params.task_id} as done"
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to complete task: $parameters", e)
+      "failed: ${e.message}"
+    }
+  }
+
   /** Formats a time for the confirmation card, e.g. "2026-10-21 18:00". */
   private fun formatForUser(millis: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(millis))
@@ -547,7 +617,7 @@ object IntentHandler {
   }
 
   /** Parses the model's date-times, with or without seconds. */
-  private fun parseDateTimeMillis(value: String): Long? {
+  internal fun parseDateTimeMillis(value: String): Long? {
     val patterns =
       listOf("yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm")
     for (pattern in patterns) {

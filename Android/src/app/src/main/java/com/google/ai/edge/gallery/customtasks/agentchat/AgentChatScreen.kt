@@ -79,6 +79,7 @@ import com.google.ai.edge.gallery.agent.PromptExpander
 import com.google.ai.edge.gallery.common.LOCAL_URL_BASE
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.SAMPLE_RATE
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.skills.formatSelectedSkills
@@ -92,6 +93,7 @@ import com.google.ai.edge.gallery.tools.SkillProgressToolAction
 import com.google.ai.edge.gallery.ui.common.BaseGalleryWebViewClient
 import com.google.ai.edge.gallery.ui.common.GalleryWebView
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessage
+import com.google.ai.edge.gallery.ui.common.chat.ChatMessageAudioClip
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageCollapsableProgressPanel
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageImage
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
@@ -221,10 +223,23 @@ fun AgentChatScreen(
         !llmChatUiState.isResettingSession
     ) {
       shellPrompt = null
+      val audio = prompt.audio
       sendMessageTrigger =
         SendMessageTrigger(
           model = selectedModel,
-          messages = listOf(ChatMessageText(content = prompt, side = ChatSide.USER)),
+          messages =
+            buildList {
+              if (audio != null && selectedModel.supportAudio) {
+                add(
+                  ChatMessageAudioClip(
+                    audioData = audio,
+                    sampleRate = SAMPLE_RATE,
+                    side = ChatSide.USER,
+                  )
+                )
+              }
+              add(ChatMessageText(content = prompt.text, side = ChatSide.USER))
+            },
         )
     }
   }

@@ -86,6 +86,7 @@ import androidx.core.net.toUri
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.huggingface.extractHfUrlInfo
@@ -112,6 +113,10 @@ fun GlobalModelManager(
   initialImportUrl: String? = null,
   // False when embedded as a tab, where there is nothing to close or navigate back to.
   showCloseButton: Boolean = true,
+  // Shown above the model list, e.g. the active model card on the models tab.
+  header: (@Composable () -> Unit)? = null,
+  // Lists downloaded models first, under their own heading, then the ones still to download.
+  groupByDownloadState: Boolean = false,
 ) {
   val uiState by viewModel.uiState.collectAsState()
   val builtInModels = remember { mutableStateListOf<Model>() }
@@ -333,22 +338,54 @@ fun GlobalModelManager(
             PaddingValues(top = 16.dp, bottom = innerPadding.calculateBottomPadding() + 80.dp),
         ) {
           val showSupplementaryTab = false
+          if (header != null) {
+            item(key = "header") { header() }
+          }
           if (!showSupplementaryTab) {
-            items(builtInModels) { model ->
-              val expanded = modelItemExpandedStates.getOrDefault(model.name, true)
-              ModelItem(
-                model = model,
-                modelVariants = modelVariants.getOrDefault(model.name, listOf()),
-                task = null,
-                modelManagerViewModel = viewModel,
-                onModelClicked = handleClickModel,
-                onBenchmarkClicked = onBenchmarkClicked,
-                expanded = expanded,
-                isBenchmarkSupported = model.supportModelBenchmark,
-                showBenchmarkActionButton = true,
-                onExpanded = { modelItemExpandedStates[model.name] = it },
-                tosViewModel = tosViewModel,
-              )
+            val modelGroups =
+              if (groupByDownloadState) {
+                val (onDevice, available) =
+                  builtInModels.partition {
+                    uiState.modelDownloadStatus[it.name]?.status ==
+                      ModelDownloadStatusType.SUCCEEDED
+                  }
+                listOf(
+                  R.string.model_list_on_device_title to onDevice,
+                  R.string.model_list_available_title to available,
+                )
+              } else {
+                listOf(null to builtInModels.toList())
+              }
+            for ((titleRes, groupModels) in modelGroups) {
+              if (titleRes != null && groupModels.isNotEmpty()) {
+                item(key = "group_$titleRes") {
+                  Text(
+                    stringResource(titleRes),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier =
+                      Modifier.semantics { heading() }
+                        .padding(horizontal = 4.dp)
+                        .padding(top = 16.dp, bottom = 4.dp),
+                  )
+                }
+              }
+              items(groupModels) { model ->
+                val expanded = modelItemExpandedStates.getOrDefault(model.name, true)
+                ModelItem(
+                  model = model,
+                  modelVariants = modelVariants.getOrDefault(model.name, listOf()),
+                  task = null,
+                  modelManagerViewModel = viewModel,
+                  onModelClicked = handleClickModel,
+                  onBenchmarkClicked = onBenchmarkClicked,
+                  expanded = expanded,
+                  isBenchmarkSupported = model.supportModelBenchmark,
+                  showBenchmarkActionButton = true,
+                  onExpanded = { modelItemExpandedStates[model.name] = it },
+                  tosViewModel = tosViewModel,
+                )
+              }
             }
 
             // Imported models.
