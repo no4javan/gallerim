@@ -30,9 +30,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -76,11 +73,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
@@ -109,23 +104,6 @@ enum class ShellTab(val label: String, val icon: ImageVector) {
   SKILLS("مهارت‌ها", Icons.Outlined.Bolt),
   MODELS("مدل‌ها", Icons.Outlined.Memory),
 }
-
-/** Persian names for the built-in tasks shown on the tools tab. */
-private val TOOL_TEXTS: Map<String, Pair<String, String>> =
-  mapOf(
-    BuiltInTaskId.LLM_ASK_IMAGE to ("پرسش از عکس" to "قبض، منو، نوشته یا هر چیزی در عکس"),
-    BuiltInTaskId.LLM_ASK_AUDIO to ("صدا به متن" to "رونویسی و ترجمه‌ی صدا"),
-    BuiltInTaskId.SMART_ALBUM to ("جستجوی گالری" to "پیدا کردن عکس با یک جمله"),
-    BuiltInTaskId.VIDEO_MOMENT_FINDER to ("لحظه در ویدیو" to "پیدا کردن یک صحنه"),
-    BuiltInTaskId.LLM_PROMPT_LAB to ("آزمایشگاه متن" to "خلاصه، بازنویسی، کد"),
-    BuiltInTaskId.LLM_CHAT to ("گفتگوی ساده" to "بدون مهارت و ابزار"),
-    BuiltInTaskId.LLM_MOBILE_ACTIONS to ("کارهای گوشی" to "چراغ‌قوه، مخاطب، Wi-Fi"),
-    BuiltInTaskId.MP_SCRAPBOOK to ("اسکرپ‌بوک" to "جدا کردن سوژه از عکس"),
-    BuiltInTaskId.LLM_TINY_GARDEN to ("باغچه‌ی کوچک" to "بازی با جمله‌های ساده"),
-  )
-
-/** Tasks that are not tools: the chat tab is the agent chat, and LLM_TEST is for side-loading. */
-private val HIDDEN_TOOL_IDS = setOf(BuiltInTaskId.LLM_AGENT_CHAT, BuiltInTaskId.LLM_TEST)
 
 /**
  * Root screen of the Persian assistant: a bottom bar with chat, tools, skills and models.
@@ -161,6 +139,8 @@ fun PersianShell(
         .sortedByDescending { it.timestampMs }
     }
   var currentTab by rememberSaveable { mutableStateOf(ShellTab.CHAT) }
+  // Text in the chat box. Kept here so the tools tab can fill in an example.
+  var chatDraft by rememberSaveable { mutableStateOf("") }
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
 
@@ -177,6 +157,14 @@ fun PersianShell(
   val startChat: (String?) -> Unit = { prompt ->
     if (chatModel != null) {
       onStartChat(chatModel, prompt)
+    } else {
+      currentTab = ShellTab.MODELS
+      scope.launch { snackbarHostState.showSnackbar("اول یک مدل گفتگو مثل Gemma 4 دانلود کن.") }
+    }
+  }
+  val openVoice: () -> Unit = {
+    if (chatModel != null) {
+      onOpenVoice()
     } else {
       currentTab = ShellTab.MODELS
       scope.launch { snackbarHostState.showSnackbar("اول یک مدل گفتگو مثل Gemma 4 دانلود کن.") }
@@ -222,24 +210,25 @@ fun PersianShell(
               }
             }
           },
-          onOpenVoice = {
-            if (chatModel != null) {
-              onOpenVoice()
-            } else {
-              currentTab = ShellTab.MODELS
-              scope.launch {
-                snackbarHostState.showSnackbar("اول یک مدل گفتگو مثل Gemma 4 دانلود کن.")
-              }
-            }
-          },
+          onOpenVoice = openVoice,
+          draft = chatDraft,
+          onDraftChange = { chatDraft = it },
           modifier = Modifier.padding(innerPadding),
         )
       ShellTab.TOOLS ->
         ToolsTab(
-          tasks = uiState.tasks.filter { it.id !in HIDDEN_TOOL_IDS },
-          onOpenTask = onOpenTask,
-          onOpenTasks = onOpenTasks,
-          onOpenVoice = onOpenVoice,
+          availableTaskIds = uiState.tasks.map { it.id }.toSet(),
+          onTarget = { target ->
+            when (target) {
+              is ToolTarget.Example -> {
+                chatDraft = target.prompt
+                currentTab = ShellTab.CHAT
+              }
+              is ToolTarget.TaskScreen -> openTaskById(target.taskId)
+              ToolTarget.TasksList -> onOpenTasks()
+              ToolTarget.Voice -> openVoice()
+            }
+          },
           modifier = Modifier.padding(innerPadding),
         )
       ShellTab.SKILLS ->
@@ -292,15 +281,16 @@ private fun ChatStartTab(
   sessions: List<ChatSessionProto>,
   onOpenSession: (ChatSessionProto) -> Unit,
   onOpenVoice: () -> Unit,
+  draft: String,
+  onDraftChange: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  var input by rememberSaveable { mutableStateOf("") }
   var showAllSessions by rememberSaveable { mutableStateOf(false) }
   val send = {
-    val text = input.trim()
+    val text = draft.trim()
     if (text.isNotEmpty()) {
       onStartChat(text)
-      input = ""
+      onDraftChange("")
     }
   }
 
@@ -358,7 +348,7 @@ private fun ChatStartTab(
         SuggestionCard(
           icon = Icons.Outlined.Widgets,
           title = "همه‌ی ابزارها",
-          subtitle = "گالری، ویدیو، گوشی…",
+          subtitle = "تقویم، زنگ ساعت، تماس و…",
           tint = MaterialTheme.colorScheme.onSurface,
           container = MaterialTheme.colorScheme.surfaceContainerHigh,
           onClick = onOpenTools,
@@ -400,8 +390,8 @@ private fun ChatStartTab(
     }
 
     Composer(
-      value = input,
-      onValueChange = { input = it },
+      value = draft,
+      onValueChange = onDraftChange,
       onSend = send,
       onVoice = onOpenVoice,
       modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
@@ -556,109 +546,6 @@ private fun Composer(
           Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "بفرست")
         }
       }
-    }
-  }
-}
-
-@Composable
-private fun ToolsTab(
-  tasks: List<Task>,
-  onOpenTask: (Task) -> Unit,
-  onOpenTasks: () -> Unit,
-  onOpenVoice: () -> Unit,
-  modifier: Modifier = Modifier,
-) {
-  LazyVerticalGrid(
-    columns = GridCells.Fixed(2),
-    modifier = modifier.fillMaxSize(),
-    contentPadding = PaddingValues(16.dp),
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
-    verticalArrangement = Arrangement.spacedBy(8.dp),
-  ) {
-    item(span = { GridItemSpan(maxLineSpan) }) {
-      Column(modifier = Modifier.padding(bottom = 8.dp)) {
-        Text("ابزارها", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
-        Text(
-          "همه روی گوشی اجرا می‌شوند",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-    }
-    item(key = "persian_tasks") {
-      ToolCard(
-        title = "کارها و یادآوری‌ها",
-        subtitle = "لیست کار با یادآوری",
-        onClick = onOpenTasks,
-        icon = { mod, tint -> Icon(Icons.Outlined.Checklist, null, tint = tint, modifier = mod) },
-      )
-    }
-    item(key = "persian_voice") {
-      ToolCard(
-        title = "حالت صوتی",
-        subtitle = "حرف بزن، دستیار گوش می‌دهد",
-        onClick = onOpenVoice,
-        icon = { mod, tint -> Icon(Icons.Rounded.Mic, null, tint = tint, modifier = mod) },
-      )
-    }
-    items(tasks, key = { it.id }) { task ->
-      val (title, subtitle) = TOOL_TEXTS[task.id] ?: (task.label to task.description)
-      ToolCard(
-        title = title,
-        subtitle = subtitle,
-        onClick = { onOpenTask(task) },
-        icon = { mod, tint ->
-          when {
-            task.icon != null -> Icon(task.icon, contentDescription = null, tint = tint, modifier = mod)
-            task.iconVectorResourceId != null ->
-              Icon(
-                painterResource(task.iconVectorResourceId),
-                contentDescription = null,
-                tint = tint,
-                modifier = mod,
-              )
-            else -> Icon(Icons.Outlined.Widgets, contentDescription = null, tint = tint, modifier = mod)
-          }
-        },
-      )
-    }
-  }
-}
-
-@Composable
-private fun ToolCard(
-  title: String,
-  subtitle: String,
-  onClick: () -> Unit,
-  icon: @Composable (Modifier, Color) -> Unit,
-) {
-  Row(
-    modifier =
-      Modifier.clip(RoundedCornerShape(18.dp))
-        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-        .clickable(onClick = onClick)
-        .padding(10.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(10.dp),
-  ) {
-    Box(
-      modifier =
-        Modifier.size(40.dp)
-          .clip(RoundedCornerShape(14.dp))
-          .background(MaterialTheme.colorScheme.primaryContainer),
-      contentAlignment = Alignment.Center,
-    ) {
-      icon(Modifier.size(20.dp), MaterialTheme.colorScheme.primary)
-    }
-    Column(modifier = Modifier.weight(1f)) {
-      Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
-      Text(
-        subtitle,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 2,
-        fontSize = 11.sp,
-      )
     }
   }
 }

@@ -16,16 +16,23 @@
 package com.google.ai.edge.gallery.intents
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.net.Uri
+import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.CalendarContract.Calendars
 import android.provider.CalendarContract.Events
 import android.provider.CalendarContract.Instances
 import android.provider.CalendarContract.Reminders
+import android.provider.ContactsContract
+import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat.checkSelfPermission
 import androidx.core.net.toUri
@@ -98,7 +105,16 @@ enum class IntentAction(val action: String) {
   SCHEDULE_NOTIFICATION("schedule_notification"),
   ADD_TASK("add_task"),
   LIST_TASKS("list_tasks"),
-  COMPLETE_TASK("complete_task");
+  COMPLETE_TASK("complete_task"),
+  FLASHLIGHT("flashlight"),
+  OPEN_SETTINGS("open_settings"),
+  SET_ALARM("set_alarm"),
+  SET_TIMER("set_timer"),
+  DIAL_NUMBER("dial_number"),
+  CREATE_CONTACT("create_contact"),
+  SHARE_TEXT("share_text"),
+  SHOW_ON_MAP("show_on_map"),
+  WEB_SEARCH("web_search");
 
   companion object {
     fun from(action: String): IntentAction? = entries.find { it.action == action }
@@ -113,6 +129,31 @@ data class AddTaskParams(
 )
 
 @JsonClass(generateAdapter = true) data class CompleteTaskParams(val task_id: String)
+
+@JsonClass(generateAdapter = true) data class FlashlightParams(val on: Boolean)
+
+@JsonClass(generateAdapter = true) data class OpenSettingsParams(val page: String)
+
+@JsonClass(generateAdapter = true)
+data class SetAlarmParams(val hour: Int, val minute: Int, val label: String? = null)
+
+@JsonClass(generateAdapter = true)
+data class SetTimerParams(val seconds: Int, val label: String? = null)
+
+@JsonClass(generateAdapter = true) data class DialNumberParams(val phone_number: String)
+
+@JsonClass(generateAdapter = true)
+data class CreateContactParams(
+  val name: String,
+  val phone_number: String? = null,
+  val email: String? = null,
+)
+
+@JsonClass(generateAdapter = true) data class ShareTextParams(val text: String)
+
+@JsonClass(generateAdapter = true) data class ShowOnMapParams(val location: String)
+
+@JsonClass(generateAdapter = true) data class WebSearchParams(val query: String)
 
 @JsonClass(generateAdapter = true)
 data class TaskDto(val task_id: String, val title: String, val due_time: String?)
@@ -228,6 +269,71 @@ object IntentHandler {
       IntentAction.ADD_TASK -> addTask(context, parameters)
       IntentAction.LIST_TASKS -> listTasks(context)
       IntentAction.COMPLETE_TASK -> completeTask(context, parameters)
+      IntentAction.FLASHLIGHT ->
+        parse<FlashlightParams>(parameters) { setFlashlight(context, it.on) }
+      IntentAction.OPEN_SETTINGS ->
+        parse<OpenSettingsParams>(parameters) { openSettings(context, it.page) }
+      IntentAction.SET_ALARM ->
+        parse<SetAlarmParams>(parameters) { p ->
+          if (p.hour !in 0..23 || p.minute !in 0..59) return@parse "failed: invalid time"
+          start(
+            context,
+            Intent(AlarmClock.ACTION_SET_ALARM).apply {
+              putExtra(AlarmClock.EXTRA_HOUR, p.hour)
+              putExtra(AlarmClock.EXTRA_MINUTES, p.minute)
+              p.label?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) }
+              putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+            },
+          )
+        }
+      IntentAction.SET_TIMER ->
+        parse<SetTimerParams>(parameters) { p ->
+          if (p.seconds <= 0) return@parse "failed: seconds must be positive"
+          start(
+            context,
+            Intent(AlarmClock.ACTION_SET_TIMER).apply {
+              putExtra(AlarmClock.EXTRA_LENGTH, p.seconds)
+              p.label?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) }
+              putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+            },
+          )
+        }
+      IntentAction.DIAL_NUMBER ->
+        parse<DialNumberParams>(parameters) { p ->
+          start(context, Intent(Intent.ACTION_DIAL, "tel:${normalizeDigits(p.phone_number)}".toUri()))
+        }
+      IntentAction.CREATE_CONTACT ->
+        parse<CreateContactParams>(parameters) { p ->
+          start(
+            context,
+            Intent(ContactsContract.Intents.Insert.ACTION).apply {
+              type = ContactsContract.RawContacts.CONTENT_TYPE
+              putExtra(ContactsContract.Intents.Insert.NAME, p.name)
+              p.phone_number?.let {
+                putExtra(ContactsContract.Intents.Insert.PHONE, normalizeDigits(it))
+              }
+              p.email?.let { putExtra(ContactsContract.Intents.Insert.EMAIL, it) }
+            },
+          )
+        }
+      IntentAction.SHARE_TEXT ->
+        parse<ShareTextParams>(parameters) { p ->
+          val send =
+            Intent(Intent.ACTION_SEND).apply {
+              type = "text/plain"
+              putExtra(Intent.EXTRA_TEXT, p.text)
+            }
+          start(context, Intent.createChooser(send, null))
+        }
+      IntentAction.SHOW_ON_MAP ->
+        parse<ShowOnMapParams>(parameters) { p ->
+          start(context, Intent(Intent.ACTION_VIEW, "geo:0,0?q=${Uri.encode(p.location)}".toUri()))
+        }
+      IntentAction.WEB_SEARCH ->
+        parse<WebSearchParams>(parameters) { p ->
+          val url = "https://www.google.com/search?q=${Uri.encode(p.query)}"
+          start(context, Intent(Intent.ACTION_VIEW, url.toUri()))
+        }
       null -> "failed"
     }
   }
@@ -526,6 +632,68 @@ object IntentHandler {
       Log.e(TAG, "Failed to delete calendar event: $parameters", e)
       "failed: ${e.message}"
     }
+  }
+
+  /** Parses [parameters] into [T] and runs [block], turning any failure into a "failed" result. */
+  private inline fun <reified T> parse(parameters: String, block: (T) -> String): String {
+    return try {
+      val params =
+        Moshi.Builder().build().adapter(T::class.java).fromJson(parameters)
+          ?: return "failed: could not parse parameters"
+      block(params)
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to run intent with parameters: $parameters", e)
+      "failed: ${e.message}"
+    }
+  }
+
+  /** Starts an activity from a non-activity context. */
+  private fun start(context: Context, intent: Intent): String {
+    return try {
+      context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      "succeeded"
+    } catch (e: ActivityNotFoundException) {
+      "failed: no app on this phone can handle it"
+    }
+  }
+
+  /** Turns Persian or Arabic digits into 0-9 and drops spaces and dashes. */
+  private fun normalizeDigits(value: String): String =
+    value
+      .map {
+        when (it) {
+          in '۰'..'۹' -> '0' + (it - '۰')
+          in '٠'..'٩' -> '0' + (it - '٠')
+          else -> it
+        }
+      }
+      .filter { it.isDigit() || it == '+' }
+      .joinToString("")
+
+  private fun setFlashlight(context: Context, on: Boolean): String {
+    val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    val cameraId =
+      cameraManager.cameraIdList.firstOrNull {
+        cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) ==
+          true
+      } ?: return "failed: this phone has no flashlight"
+    cameraManager.setTorchMode(cameraId, on)
+    return if (on) "succeeded: flashlight is on" else "succeeded: flashlight is off"
+  }
+
+  private fun openSettings(context: Context, page: String): String {
+    val action =
+      when (page.lowercase().trim()) {
+        "wifi", "wi-fi" -> Settings.ACTION_WIFI_SETTINGS
+        "bluetooth" -> Settings.ACTION_BLUETOOTH_SETTINGS
+        "display" -> Settings.ACTION_DISPLAY_SETTINGS
+        "sound" -> Settings.ACTION_SOUND_SETTINGS
+        "battery" -> Intent.ACTION_POWER_USAGE_SUMMARY
+        "location" -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
+        "apps" -> Settings.ACTION_APPLICATION_SETTINGS
+        else -> Settings.ACTION_SETTINGS
+      }
+    return start(context, Intent(action))
   }
 
   /** Adds an item to the local to-do list, optionally with a reminder at its due time. */

@@ -49,8 +49,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private const val TAG = "AGSkillManagerVM"
+// Demo skills start switched off: every enabled skill is listed in the prompt, and a shorter
+// list helps the model pick the right one. They can be switched on in the skills tab.
 private val DEFAULT_DISABLED_SKILLS =
-  setOf("calculate-hash", "kitchen-adventure", "text-spinner", "send-email")
+  setOf(
+    "calculate-hash",
+    "kitchen-adventure",
+    "text-spinner",
+    "mood-tracker",
+    "interactive-map",
+    "learn-something-new",
+  )
 
 fun getTryOutChips(context: Context): List<SkillTryOutChip> =
   listOf(
@@ -360,16 +369,9 @@ class SkillManagerViewModel @Inject constructor(val skillManager: SkillManager) 
 
   companion object {
 
-    fun getDefaultDisabledSkills(model: Model? = null): Set<String> {
-      val name = model?.name ?: ""
-      val isGemma4E4b = name.equals("Gemma-4-E4B-it", ignoreCase = true)
-      if (isGemma4E4b) {
-        // For Gemma 4 E4B model or above, we enable learn-something-new skill by default.
-        return DEFAULT_DISABLED_SKILLS
-      }
-      // For other models, we disable learn-something-new skill by default.
-      return DEFAULT_DISABLED_SKILLS + "learn-something-new"
-    }
+    // The model no longer matters: learn-something-new is a demo skill and is off for all models.
+    @Suppress("UNUSED_PARAMETER")
+    fun getDefaultDisabledSkills(model: Model? = null): Set<String> = DEFAULT_DISABLED_SKILLS
 
     fun convertSkillMdToProto(
       mdContent: String,

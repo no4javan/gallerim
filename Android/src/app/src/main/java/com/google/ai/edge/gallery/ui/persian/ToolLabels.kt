@@ -45,6 +45,20 @@ private val TOOL_NAMES =
     "add_task" to "افزودن کار",
     "list_tasks" to "خواندن کارها",
     "complete_task" to "انجام کار",
+    "send-sms" to "پیامک",
+    "phone-controls" to "کنترل گوشی",
+    "alarm-and-timer" to "زنگ ساعت و تایمر",
+    "calls-and-contacts" to "تماس و مخاطب",
+    "maps-and-web" to "نقشه و وب",
+    "flashlight" to "چراغ‌قوه",
+    "open_settings" to "تنظیمات",
+    "set_alarm" to "زنگ ساعت",
+    "set_timer" to "تایمر",
+    "dial_number" to "شماره‌گیری",
+    "create_contact" to "مخاطب جدید",
+    "share_text" to "اشتراک‌گذاری",
+    "show_on_map" to "نقشه",
+    "web_search" to "جستجوی وب",
   )
 
 private val PATTERNS =
