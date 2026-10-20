@@ -90,7 +90,6 @@ import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,6 +97,10 @@ import com.google.ai.edge.gallery.proto.ChatSessionProto
 import dagger.hilt.android.EntryPointAccessors
 import java.util.Calendar
 import kotlinx.coroutines.launch
+
+/** The amber of the main action buttons (send, voice, add), on light and dark themes alike. */
+val ACTION_AMBER = Color(0xFFF2A93B)
+val ON_ACTION_AMBER = Color(0xFF0E1726)
 
 /** The four bottom tabs of the Persian assistant. */
 enum class ShellTab(val label: String, val icon: ImageVector) {
@@ -192,12 +195,6 @@ fun PersianShell(
             onClick = { currentTab = tab },
             icon = { Icon(tab.icon, contentDescription = null) },
             label = { Text(tab.label) },
-            colors =
-              NavigationBarItemDefaults.colors(
-                selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                selectedTextColor = MaterialTheme.colorScheme.primary,
-                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-              ),
           )
         }
       }
@@ -297,8 +294,8 @@ private fun ChatStartTab(
   onOpenVoice: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  var input by rememberSaveable
-  var showAllSessions by rememberSaveable { mutableStateOf(false) } { mutableStateOf("") }
+  var input by rememberSaveable { mutableStateOf("") }
+  var showAllSessions by rememberSaveable { mutableStateOf(false) }
   val send = {
     val text = input.trim()
     if (text.isNotEmpty()) {
@@ -549,8 +546,8 @@ private fun Composer(
         modifier = Modifier.size(48.dp),
         colors =
           IconButtonDefaults.iconButtonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
+            containerColor = ACTION_AMBER,
+            contentColor = ON_ACTION_AMBER,
           ),
       ) {
         if (empty) {

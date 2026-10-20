@@ -257,16 +257,15 @@ fun TasksScreen(navigateUp: () -> Unit) {
             IconButton(onClick = { showDueMenu = true }) {
               Icon(Icons.Outlined.Alarm, contentDescription = "زمان یادآوری")
             }
+            // Never disabled: a greyed-out button disappears on the dark theme. An empty
+            // input simply adds nothing.
             IconButton(
               onClick = add,
-              enabled = input.isNotBlank(),
               modifier = Modifier.size(48.dp),
               colors =
                 IconButtonDefaults.iconButtonColors(
-                  containerColor = MaterialTheme.colorScheme.primary,
-                  contentColor = MaterialTheme.colorScheme.onPrimary,
-                  disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                  disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                  containerColor = ACTION_AMBER,
+                  contentColor = ON_ACTION_AMBER,
                 ),
             ) {
               Icon(Icons.Rounded.Add, contentDescription = "افزودن")

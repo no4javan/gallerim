@@ -195,11 +195,8 @@ fun VoiceScreen(chatModel: Model?, navigateUp: () -> Unit, onSend: (ByteArray) -
           modifier = Modifier.size(112.dp),
           colors =
             IconButtonDefaults.filledIconButtonColors(
-              containerColor =
-                if (recording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-              contentColor =
-                if (recording) MaterialTheme.colorScheme.onError
-                else MaterialTheme.colorScheme.onPrimary,
+              containerColor = if (recording) ACTION_AMBER else MaterialTheme.colorScheme.primary,
+              contentColor = if (recording) ON_ACTION_AMBER else MaterialTheme.colorScheme.onPrimary,
             ),
         ) {
           Icon(
