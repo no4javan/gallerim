@@ -62,11 +62,29 @@ class RunIntentTool(private val context: Context, private val skillsProvider: Sk
           )
         )
       val res =
-        IntentHandler.handleAction(context, intent, parameters) { permission ->
-          val permissionAction = RequestPermissionToolAction(permission = permission)
-          executionContext?.actionChannel?.send(permissionAction)
-          permissionAction.result.await()
-        }
+        IntentHandler.handleAction(
+          context = context,
+          action = intent,
+          parameters = parameters,
+          requestPermission = { permission ->
+            val permissionAction = RequestPermissionToolAction(permission = permission)
+            executionContext?.actionChannel?.send(permissionAction)
+            permissionAction.result.await()
+          },
+          confirm = { request ->
+            val confirmAction =
+              ConfirmActionToolAction(
+                title = request.title,
+                detail = request.detail,
+                confirmLabel = request.confirmLabel,
+                destructive = request.destructive,
+              )
+            // Without a UI to ask, never change the user's data.
+            val channel = executionContext?.actionChannel ?: return@handleAction false
+            channel.send(confirmAction)
+            confirmAction.result.await()
+          },
+        )
       return@runBlocking mapOf("action" to intent, "parameters" to parameters, "result" to res)
     }
   }

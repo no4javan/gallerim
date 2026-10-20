@@ -61,6 +61,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.ui.persian.persianToolLabel
 
 private const val MAX_DESCRIPTION_LINES = 5
 
@@ -112,7 +113,7 @@ fun MessageBodyCollapsableProgressPanel(message: ChatMessageCollapsableProgressP
                 slideOutVertically { -it } + fadeOut()
             },
           ) { curTitle ->
-            Text(text = curTitle, style = MaterialTheme.typography.labelLarge)
+            Text(text = persianToolLabel(curTitle), style = MaterialTheme.typography.labelLarge)
           }
         }
       }

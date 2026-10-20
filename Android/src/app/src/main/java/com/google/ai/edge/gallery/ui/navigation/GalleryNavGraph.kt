@@ -87,6 +87,7 @@ import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.notifications.NotificationsScreen
 import com.google.ai.edge.gallery.ui.persian.PersianShell
+import com.google.ai.edge.gallery.ui.persian.ShellPromptHandoff
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -196,10 +197,8 @@ fun GalleryNavHost(
         tosViewModel = tosViewModel,
         onStartChat = { model, prompt ->
           modelManagerViewModel.selectModel(model)
-          val route = "$ROUTE_MODEL/${BuiltInTaskId.LLM_AGENT_CHAT}/${model.name}"
-          navController.navigate(
-            if (prompt.isNullOrEmpty()) route else "$route?query=${Uri.encode(prompt)}"
-          )
+          if (!prompt.isNullOrEmpty()) ShellPromptHandoff.put(prompt)
+          navController.navigate("$ROUTE_MODEL/${BuiltInTaskId.LLM_AGENT_CHAT}/${model.name}")
         },
         onOpenTask = { task ->
           pickedTask = task

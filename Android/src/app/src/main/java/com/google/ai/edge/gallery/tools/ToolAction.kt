@@ -26,6 +26,7 @@ enum class ToolActionName() {
   ASK_INFO,
   REQUEST_PERMISSION,
   ASK_MCP_TOOL_CALL_PERMISSION,
+  CONFIRM_ACTION,
 }
 
 /**
@@ -96,6 +97,24 @@ class RequestPermissionToolAction(
   val permission: String,
   val result: CompletableDeferred<Boolean> = CompletableDeferred(),
 ) : ToolAction(name = ToolActionName.REQUEST_PERMISSION)
+
+/**
+ * Emitted before a tool changes or removes the user's data (for example editing or deleting a
+ * calendar event), so the user can see exactly what will happen and approve or cancel it.
+ *
+ * @property title Short heading for the confirmation card.
+ * @property detail What will change, in the user's language.
+ * @property confirmLabel Label of the approve button.
+ * @property destructive Whether the change removes data, so the card can warn accordingly.
+ * @property result Completed with true if the user approved, false if they cancelled.
+ */
+class ConfirmActionToolAction(
+  val title: String,
+  val detail: String,
+  val confirmLabel: String,
+  val destructive: Boolean = false,
+  val result: CompletableDeferred<Boolean> = CompletableDeferred(),
+) : ToolAction(name = ToolActionName.CONFIRM_ACTION)
 
 /** Represents the result of a permission request in [AskMcpToolCallPermissionAction]. */
 enum class PermissionResult {

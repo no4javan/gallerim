@@ -115,6 +115,14 @@ data class ScheduleNotificationParams(
   val repeat_daily: Boolean? = null,
 )
 
+/** What the user is asked to approve before an intent changes their data. */
+data class ConfirmRequest(
+  val title: String,
+  val detail: String,
+  val confirmLabel: String,
+  val destructive: Boolean,
+)
+
 object IntentHandler {
   private const val TAG = "IntentHandler"
   private const val DEFAULT_EVENT_DURATION_MS = 60 * 60 * 1000L
@@ -127,6 +135,8 @@ object IntentHandler {
     // requestPermission is a suspend function that takes a permission string and returns true if
     // the permission is granted, false otherwise.
     requestPermission: suspend (String) -> Boolean,
+    // confirm shows the user what is about to change and returns true only if they approve it.
+    confirm: suspend (ConfirmRequest) -> Boolean = { false },
   ): String {
     return when (IntentAction.from(action)) {
       IntentAction.SEND_EMAIL -> {
@@ -181,10 +191,10 @@ object IntentHandler {
         readCalendarEvents(context, parameters, requestPermission)
       }
       IntentAction.UPDATE_CALENDAR_EVENT -> {
-        updateCalendarEvent(context, parameters, requestPermission)
+        updateCalendarEvent(context, parameters, requestPermission, confirm)
       }
       IntentAction.DELETE_CALENDAR_EVENT -> {
-        deleteCalendarEvent(context, parameters, requestPermission)
+        deleteCalendarEvent(context, parameters, requestPermission, confirm)
       }
       IntentAction.GET_CURRENT_DATE_AND_TIME -> {
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss EEEE", Locale.US)
@@ -383,6 +393,7 @@ object IntentHandler {
     context: Context,
     parameters: String,
     requestPermission: suspend (String) -> Boolean,
+    confirm: suspend (ConfirmRequest) -> Boolean,
   ): String {
     if (!ensureCalendarPermissions(context, requestPermission)) {
       return "failed: calendar permission denied by user"
@@ -394,13 +405,15 @@ object IntentHandler {
       val eventUri = ContentUris.withAppendedId(Events.CONTENT_URI, params.event_id)
       var oldBegin = 0L
       var oldEnd = 0L
+      var oldTitle = ""
       val found =
         context.contentResolver
-          .query(eventUri, arrayOf(Events.DTSTART, Events.DTEND), null, null, null)
+          .query(eventUri, arrayOf(Events.DTSTART, Events.DTEND, Events.TITLE), null, null, null)
           ?.use { c ->
             if (c.moveToFirst()) {
               oldBegin = c.getLong(0)
               oldEnd = c.getLong(1)
+              oldTitle = c.getString(2) ?: ""
               true
             } else false
           } ?: false
@@ -424,6 +437,23 @@ object IntentHandler {
         newBegin != null && oldEnd > 0 -> values.put(Events.DTEND, newBegin + (oldEnd - oldBegin))
       }
       if (values.size() == 0) return "failed: nothing to update"
+
+      val changes = buildList {
+        params.title?.let { add("عنوان: «$oldTitle» ← «$it»") }
+        newBegin?.let { add("زمان: ${formatForUser(oldBegin)} ← ${formatForUser(it)}") }
+        if (newBegin == null && newEnd != null) add("پایان: ${formatForUser(newEnd)}")
+        if (params.description != null) add("توضیحات تغییر می‌کند")
+      }
+      val approved =
+        confirm(
+          ConfirmRequest(
+            title = "ویرایش «$oldTitle»",
+            detail = changes.joinToString("\n"),
+            confirmLabel = "اعمال تغییر",
+            destructive = false,
+          )
+        )
+      if (!approved) return "cancelled: the user declined, nothing was changed"
       val rows = context.contentResolver.update(eventUri, values, null, null)
       if (rows > 0) "succeeded: updated event_id=${params.event_id}"
       else "failed: no event with event_id=${params.event_id}"
@@ -437,6 +467,7 @@ object IntentHandler {
     context: Context,
     parameters: String,
     requestPermission: suspend (String) -> Boolean,
+    confirm: suspend (ConfirmRequest) -> Boolean,
   ): String {
     if (!ensureCalendarPermissions(context, requestPermission)) {
       return "failed: calendar permission denied by user"
@@ -445,6 +476,24 @@ object IntentHandler {
       val params =
         Moshi.Builder().build().adapter(DeleteCalendarEventParams::class.java).fromJson(parameters)
           ?: return "failed: could not parse parameters"
+      val eventUri = ContentUris.withAppendedId(Events.CONTENT_URI, params.event_id)
+      val summary =
+        context.contentResolver
+          .query(eventUri, arrayOf(Events.TITLE, Events.DTSTART), null, null, null)
+          ?.use { c ->
+            if (c.moveToFirst()) "«${c.getString(0) ?: ""}»\n${formatForUser(c.getLong(1))}"
+            else null
+          } ?: return "failed: no event with event_id=${params.event_id}"
+      val approved =
+        confirm(
+          ConfirmRequest(
+            title = "حذف رویداد از تقویم",
+            detail = summary,
+            confirmLabel = "حذف کن",
+            destructive = true,
+          )
+        )
+      if (!approved) return "cancelled: the user declined, nothing was deleted"
       val rows =
         context.contentResolver.delete(
           ContentUris.withAppendedId(Events.CONTENT_URI, params.event_id),
@@ -458,6 +507,10 @@ object IntentHandler {
       "failed: ${e.message}"
     }
   }
+
+  /** Formats a time for the confirmation card, e.g. "2026-10-21 18:00". */
+  private fun formatForUser(millis: Long): String =
+    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(millis))
 
   private suspend fun ensureCalendarPermissions(
     context: Context,

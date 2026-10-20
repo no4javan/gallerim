@@ -17,6 +17,8 @@
 package com.google.ai.edge.gallery
 
 import android.app.Application
+import android.content.Context
+import com.google.ai.edge.gallery.common.PersianLocale
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.notifications.NotificationScheduleManager
 import com.google.ai.edge.gallery.ui.theme.ThemeSettings
@@ -29,6 +31,10 @@ class GalleryApplication : Application() {
 
   @Inject lateinit var dataStoreRepository: DataStoreRepository
   @Inject lateinit var notificationScheduleManager: NotificationScheduleManager
+
+  override fun attachBaseContext(base: Context) {
+    super.attachBaseContext(PersianLocale.wrap(base))
+  }
 
   override fun onCreate() {
     super.onCreate()

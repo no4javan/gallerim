@@ -60,8 +60,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -69,7 +67,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.style.TextAlign
@@ -80,7 +77,6 @@ import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.agent.PromptExpander
 import com.google.ai.edge.gallery.common.LOCAL_URL_BASE
-import com.google.ai.edge.gallery.data.AgentSkillsURLs
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.Task
@@ -89,6 +85,7 @@ import com.google.ai.edge.gallery.skills.formatSelectedSkills
 import com.google.ai.edge.gallery.tools.AskInfoToolAction
 import com.google.ai.edge.gallery.tools.AskMcpToolCallPermissionAction
 import com.google.ai.edge.gallery.tools.CallJsToolAction
+import com.google.ai.edge.gallery.tools.ConfirmActionToolAction
 import com.google.ai.edge.gallery.tools.PermissionResult
 import com.google.ai.edge.gallery.tools.RequestPermissionToolAction
 import com.google.ai.edge.gallery.tools.SkillProgressToolAction
@@ -108,6 +105,8 @@ import com.google.ai.edge.gallery.ui.common.chat.convertToLitertMessage
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatScreen
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
+import com.google.ai.edge.gallery.ui.persian.ConfirmActionDialog
+import com.google.ai.edge.gallery.ui.persian.ShellPromptHandoff
 import java.lang.Exception
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
@@ -159,6 +158,7 @@ fun AgentChatScreen(
   var disabledSkillName by remember { mutableStateOf("") }
 
   var currentPermissionAction by remember { mutableStateOf<RequestPermissionToolAction?>(null) }
+  var currentConfirmAction by remember { mutableStateOf<ConfirmActionToolAction?>(null) }
   val permissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
       permissionGranted ->
@@ -211,6 +211,23 @@ fun AgentChatScreen(
   // prompt; it is re-armed only when a new `initialQuery` arrives.
   var pendingExternalPrompt by
     remember(initialQuery) { mutableStateOf(initialQuery?.takeIf { it.isNotEmpty() }) }
+
+  // A prompt typed on the app's own start screen is sent as soon as the model is ready.
+  var shellPrompt by remember { mutableStateOf(ShellPromptHandoff.take()) }
+  LaunchedEffect(shellPrompt, modelInitStatus, llmChatUiState.isResettingSession) {
+    val prompt = shellPrompt ?: return@LaunchedEffect
+    if (
+      modelInitStatus is Model.InitializationStatus.Initialized &&
+        !llmChatUiState.isResettingSession
+    ) {
+      shellPrompt = null
+      sendMessageTrigger =
+        SendMessageTrigger(
+          model = selectedModel,
+          messages = listOf(ChatMessageText(content = prompt, side = ChatSide.USER)),
+        )
+    }
+  }
 
   LlmChatScreen(
     modelManagerViewModel = modelManagerViewModel,
@@ -435,6 +452,9 @@ fun AgentChatScreen(
             is AskMcpToolCallPermissionAction -> {
               currentMcpPermissionAction = action
             }
+            is ConfirmActionToolAction -> {
+              currentConfirmAction = action
+            }
           }
         }
       }
@@ -504,32 +524,19 @@ fun AgentChatScreen(
               horizontalAlignment = Alignment.CenterHorizontally,
             ) {
               Text(
-                stringResource(R.string.introducing),
-                style = MaterialTheme.typography.headlineSmall,
-                textAlign = TextAlign.Center,
-              )
-              Text(
-                stringResource(R.string.agent_skills),
+                "گفتگوی تازه",
                 style =
                   MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.Medium,
-                    brush =
-                      Brush.linearGradient(colors = listOf(Color(0xFF85B1F8), Color(0xFF3174F1))),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
                   ),
-                modifier = Modifier.padding(top = 12.dp, bottom = 16.dp),
+                modifier = Modifier.padding(bottom = 12.dp),
                 textAlign = TextAlign.Center,
               )
               Text(
-                AnnotatedString.fromHtml(
-                  stringResource(
-                    R.string.agent_skills_intro,
-                    AgentSkillsURLs.REPOSITORY,
-                    AgentSkillsURLs.DISCUSSIONS,
-                    stringResource(R.string.agent_skills),
-                  )
-                ),
+                "هر سؤالی داری بپرس یا بگو چه کاری انجام بدهم. هر وقت لازم باشد، خودم سراغ تقویم، یادآوری یا مهارت‌های دیگر می‌روم و قبل از تغییر دادن چیزی از تو می‌پرسم.",
                 style =
-                  MaterialTheme.typography.headlineSmall.copy(fontSize = 16.sp, lineHeight = 22.sp),
+                  MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 26.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
               )
@@ -607,6 +614,19 @@ fun AgentChatScreen(
         action.result.complete("")
         showAskInfoDialog = false
         currentAskInfoAction = null
+      },
+    )
+  }
+
+  currentConfirmAction?.let { action ->
+    ConfirmActionDialog(
+      title = action.title,
+      detail = action.detail,
+      confirmLabel = action.confirmLabel,
+      destructive = action.destructive,
+      onResult = { approved ->
+        action.result.complete(approved)
+        currentConfirmAction = null
       },
     )
   }

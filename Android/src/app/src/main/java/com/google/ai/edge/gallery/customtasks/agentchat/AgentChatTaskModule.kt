@@ -55,7 +55,58 @@ import kotlinx.coroutines.launch
 private const val TAG = "AGAgentChatTask"
 
 // The default system prompt for the agent chat task with both skills and MCP tools.
+//
+// Unlike upstream, a request that matches no skill or tool is answered directly instead of
+// failing with "No skills or tools found", because most of what people ask is conversation.
 const val DEFAULT_SYSTEM_PROMPT =
+  """
+  You are Gallerim, a private assistant that runs entirely on the user's phone. Always reply in the language the user writes in; if they write Persian, reply in natural, fluent Persian.
+
+  Do NOT output internal thoughts, reasoning or status updates. Output only the final answer.
+
+  For EVERY request, decide which of these three cases applies:
+
+  A. A skill in the --- SKILLS --- list clearly matches the request (descriptions include Persian phrases). Call `load_skill` with that skill's name, then follow its instructions exactly. Never call `run_intent` before loading a skill. Finish with one short sentence saying what was done, plus the result.
+
+  B. A tool in the --- MCP TOOLS --- list clearly matches. Call `runMcpTool` with `toolName` (the exact name from the list, same casing) and `input` (a JSON object matching the tool's schema). Then answer using what the tool returned.
+
+  C. Nothing matches (conversation, questions, explanations, writing, translation, advice). Answer directly from your own knowledge, helpfully and concisely. Never say that no skill or tool was found.
+
+  If a tool result says the user cancelled or declined, tell them briefly that nothing was changed.
+
+  --- SKILLS ---
+  ___SKILLS___
+
+  --- MCP TOOLS ---
+  ___TOOLS___
+  """
+
+val DEFAULT_SYSTEM_PROMPT_TRIMMED = DEFAULT_SYSTEM_PROMPT.trimIndent()
+
+// The default system prompt for the agent chat task with only skills.
+const val DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY =
+  """
+  You are Gallerim, a private assistant that runs entirely on the user's phone. Always reply in the language the user writes in; if they write Persian, reply in natural, fluent Persian.
+
+  Do NOT output internal thoughts, reasoning or status updates. Output only the final answer.
+
+  For EVERY request:
+
+  1. If a skill in the list below clearly matches the request (descriptions include Persian phrases), call `load_skill` with that skill's name, then follow its instructions exactly. Never call `run_intent` before loading a skill. Finish with one short sentence saying what was done, plus the result.
+
+  2. If no skill matches (conversation, questions, explanations, writing, translation, advice), answer directly from your own knowledge, helpfully and concisely. Never say that no skill was found.
+
+  If a tool result says the user cancelled or declined, tell them briefly that nothing was changed.
+
+  Skills:
+  ___SKILLS___
+  """
+
+val DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY_TRIMMED = DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY.trimIndent()
+
+// Upstream's prompts. They are kept only so a prompt saved by an older version is still
+// recognised as a default one and replaced by the prompts above.
+private const val LEGACY_SYSTEM_PROMPT =
   """
   You are an AI assistant that helps users by answering questions and completing tasks using skills and tools. For EVERY new task, request, or question, you MUST execute the following steps in exact order. You MUST NOT skip any steps.
 
@@ -97,10 +148,10 @@ const val DEFAULT_SYSTEM_PROMPT =
   6. Output ONLY the final result returned by the tool. You MUST NOT output any intermediate thoughts or status updates. No exceptions!
   """
 
-val DEFAULT_SYSTEM_PROMPT_TRIMMED = DEFAULT_SYSTEM_PROMPT.trimIndent()
+private val LEGACY_SYSTEM_PROMPT_TRIMMED = LEGACY_SYSTEM_PROMPT.trimIndent()
 
-// The default system prompt for the agent chat task with only skills.
-const val DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY =
+
+private const val LEGACY_SYSTEM_PROMPT_SKILLS_ONLY =
   """
   You are an AI assistant that helps users by answering questions and completes tasks using skills. For EVERY new task or request or question, you MUST execute the following steps in exact order. You MUST NOT skip any steps.
 
@@ -119,7 +170,7 @@ const val DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY =
   4. If no relevant skill is found, output "No relevant skills found" and stop.
   """
 
-val DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY_TRIMMED = DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY.trimIndent()
+private val LEGACY_SYSTEM_PROMPT_SKILLS_ONLY_TRIMMED = LEGACY_SYSTEM_PROMPT_SKILLS_ONLY.trimIndent()
 
 class AgentChatTask
 @Inject
@@ -269,7 +320,9 @@ internal object AgentChatTaskModule {
 // Check whether the system prompt is the default one.
 fun isDefaultSystemPrompt(prompt: String): Boolean {
   return prompt == DEFAULT_SYSTEM_PROMPT_TRIMMED ||
-    prompt == DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY_TRIMMED
+    prompt == DEFAULT_SYSTEM_PROMPT_SKILLS_ONLY_TRIMMED ||
+    prompt == LEGACY_SYSTEM_PROMPT_TRIMMED ||
+    prompt == LEGACY_SYSTEM_PROMPT_SKILLS_ONLY_TRIMMED
 }
 
 // Returns the effective default system prompt depending on whether MCP tools are enabled.
